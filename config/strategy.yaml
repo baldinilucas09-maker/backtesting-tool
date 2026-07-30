@@ -1,0 +1,59 @@
+# Configuration de la stratégie de backtest SMC/ICT sur MGC
+
+timeframes:
+  ltf: "5min"   # timeframe d'exécution
+  htf: "4h"     # timeframe de contexte (structure, OB, sweeps)
+
+data:
+  raw_file: "data/raw/MGC_5min_synthetic.csv"
+  timezone: "UTC"
+
+swings:
+  left_bars: 2
+  right_bars: 2
+
+liquidity_sweeps:
+  lookback_swings: 20     # nb de swings HTF récents surveillés
+  max_bars_since_sweep: 12  # validité du sweep pour chercher une confluence (en bougies HTF)
+
+order_blocks:
+  impulse_atr_mult: 1.5   # déplacement mini (en multiples d'ATR) pour qualifier un mouvement impulsif
+  atr_period: 14
+  max_ob_age_bars: 40     # OB non mitigé au-delà -> ignoré
+
+fair_value_gaps:
+  min_gap_atr_mult: 0.0   # gap minimal (0 = tout gap compte), en multiples d'ATR LTF
+  max_fvg_age_bars: 30
+
+volume_profile:
+  window_bars: 48         # fenêtre glissante (Fixed Range) en bougies HTF
+  n_bins: 30
+
+vwap:
+  anchor: "session"       # "session" ou "sweep"
+  session_start_utc: "00:00"
+
+confluence:
+  proximity_atr_mult: 0.5   # tolérance de proximité au POC/AVWAP, en multiples d'ATR LTF
+  min_score: 4                # nb de conditions requises parmi les conditions activées ci-dessous
+                               # (4 = toutes, logique ET stricte conforme au brief)
+  required:                   # conditions activées (mises à false = exclues du scoring)
+    sweep: true
+    order_block: true
+    fvg: true
+    poc_or_avwap: true
+
+risk:
+  initial_capital: 10000
+  risk_per_trade_pct: 1.0
+  stop_buffer_ticks: 2
+  tick_size: 0.1
+  tick_value: 1.0            # valeur $ par tick par contrat (MGC: 0.1 = $1)
+  r_multiples: [1, 2, 3]
+  scale_out_fractions: [0.34, 0.33, 0.33]
+  max_concurrent_trades: 1
+
+session_filter:
+  enabled: false
+  start_utc: "12:00"
+  end_utc: "20:00"
