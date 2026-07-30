@@ -60,6 +60,46 @@ pip install -e .
 
 Tous les seuils sont paramétrables dans `config/strategy.yaml`.
 
+## Conseiller d'entrée en position
+
+En plus du backtest historique, `scripts/advise_entry.py` analyse la
+**dernière bougie disponible** avec exactement les mêmes détecteurs de
+patterns et la même logique de confluence que le backtest, et affiche soit
+un plan de trade (entrée / stop / take-profits / taille de position), soit
+l'explication de ce qui manque pour qu'un setup se forme :
+
+```bash
+python scripts/advise_entry.py --config config/strategy.yaml
+```
+
+Options utiles :
+- `--data chemin.csv` : analyser un CSV différent (ex : export récent de
+  votre plateforme) sans toucher à la config.
+- `--capital 15000` : sizing basé sur un capital courant différent de celui
+  de la config.
+- `--json-out output/latest_advice.json` (défaut) : écrit le résultat en
+  JSON — c'est le point d'intégration générique pour brancher le conseil sur
+  l'outil que vous utilisez déjà (alerte Discord/Telegram, webhook
+  TradingView, bot d'exécution, etc.). Le JSON contient le détail de chaque
+  condition de confluence (`checks`), les conditions manquantes (`missing`),
+  et le plan de trade complet si un signal est actif (`entry`, `stop_loss`,
+  `take_profits`, `position_size`).
+
+Exemple de sortie quand un setup est actif :
+
+```
+[SIGNAL] SHORT sur MGC à 2025-03-25 23:55:00+00:00 (prix 2346.42)
+Confluence : 4/4 (sweep, order_block, fvg, poc)
+Entrée conseillée : 2346.42
+Stop loss         : 2347.73
+Take profits      : 1R=2345.11 (34%) | 2R=2343.80 (33%) | 3R=2342.49 (33%)
+Taille de position : 7 contrat(s) (risque ≈ 100.00 $)
+```
+
+Ce conseil provient de la même règle de décision que celle validée en
+backtest — ce n'est pas un signal indépendant, et il ne remplace pas une
+vérification manuelle avant exécution.
+
 ## Structure du projet
 
 ```
@@ -68,7 +108,8 @@ src/mgc_backtest/
 ├── patterns/     # un module par pattern (swings, OB, FVG, sweeps, volume profile, VWAP)
 ├── strategy/     # règles, scoring de confluence, génération de signaux, gestion du risque
 ├── backtest/     # moteur de backtest event-driven (trade, portfolio, engine)
-└── reporting/    # métriques de performance, graphiques, rapport
+├── reporting/    # métriques de performance, graphiques, rapport
+└── advisor.py    # conseiller d'entrée temps réel (réutilise patterns/ + strategy/)
 ```
 
 ## Tests

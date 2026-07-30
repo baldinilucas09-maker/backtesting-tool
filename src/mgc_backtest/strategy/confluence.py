@@ -58,8 +58,8 @@ def evaluate_confluence(
 
     if required.get("poc_or_avwap", True):
         tol = cfg.proximity_atr_mult * atr_ltf if atr_ltf and atr_ltf > 0 else 0.0
-        near_poc = poc is not None and abs(price - poc) <= tol
-        near_vwap = vwap is not None and abs(price - vwap) <= tol
+        near_poc = bool(poc is not None and abs(price - poc) <= tol)
+        near_vwap = bool(vwap is not None and abs(price - vwap) <= tol)
         ok = near_poc or near_vwap
         checks["poc_or_avwap"] = ok
         if near_poc:
