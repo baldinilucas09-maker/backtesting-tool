@@ -88,17 +88,58 @@ Options utiles :
 Exemple de sortie quand un setup est actif :
 
 ```
-[SIGNAL] SHORT sur MGC à 2025-03-25 23:55:00+00:00 (prix 2346.42)
+[SIGNAL] SHORT sur MGC à 2025-03-25 23:55:00+00:00 (prix signal 2346.42)
 Confluence : 4/4 (sweep, order_block, fvg, poc)
-Entrée conseillée : 2346.42
+Entrée conseillée : 2346.52 (slippage inclus)
 Stop loss         : 2347.73
 Take profits      : 1R=2345.11 (34%) | 2R=2343.80 (33%) | 3R=2342.49 (33%)
-Taille de position : 7 contrat(s) (risque ≈ 100.00 $)
+Taille de position : 7 contrat(s) (risque ≈ 100.00 $, commission d'entrée ≈ 5.18 $)
 ```
 
 Ce conseil provient de la même règle de décision que celle validée en
 backtest — ce n'est pas un signal indépendant, et il ne remplace pas une
 vérification manuelle avant exécution.
+
+## Coûts réalistes (slippage + commissions)
+
+Le backtest applique par défaut des coûts de transaction réalistes,
+paramétrables dans `config/strategy.yaml` (section `risk`) :
+- `slippage_ticks` : slippage défavorable appliqué à **chaque** exécution
+  (entrée, chaque sortie partielle/totale) — le fill est toujours pire que
+  le niveau théorique visé, jamais meilleur.
+- `commission_per_contract` : commission par contrat, facturée à l'entrée
+  et à chaque sortie (à ajuster selon votre broker réel).
+
+Le rapport distingue systématiquement performance **brute** (mouvement de
+prix seul) et **nette** (après commissions) — c'est le net qui reflète ce
+qui se passerait réellement sur votre compte.
+
+## Validation walk-forward
+
+Un backtest unique sur toute la période peut être trompeur (coup de chance,
+seuils surajustés aux données). `scripts/run_walk_forward.py` découpe
+l'historique en fenêtres séquentielles **train → test** : le seuil de
+confluence (`min_score`) est choisi sur chaque fenêtre d'entraînement, puis
+appliqué tel quel sur la fenêtre de test suivante (jamais vue pendant la
+sélection). Les résultats out-of-sample de toutes les fenêtres sont ensuite
+agrégés pour donner une estimation de performance plus honnête, avec un
+indicateur explicite de surapprentissage (in-sample vs out-of-sample).
+
+```bash
+python scripts/run_walk_forward.py --config config/strategy.yaml \
+    --train-days 20 --test-days 10 --min-score-candidates 2,3,4
+```
+
+Le rapport (`output/walk_forward/`) contient un tableau par fenêtre
+(`walk_forward_folds.csv`), les métriques agrégées out-of-sample, et une
+alerte automatique si la performance s'effondre hors échantillon ou si
+l'échantillon de trades est trop faible pour conclure statistiquement.
+
+> Sur le jeu de données synthétique fourni par défaut, le walk-forward
+> révèle typiquement une performance instable et incohérente d'une fenêtre
+> à l'autre — c'est attendu (une marche aléatoire n'a par construction
+> aucun edge stable à trouver) et démontre que l'outil détecte bien
+> l'absence de robustesse plutôt que de la masquer.
 
 ## Structure du projet
 
@@ -107,8 +148,9 @@ src/mgc_backtest/
 ├── data/         # chargement CSV + resampling multi-timeframe
 ├── patterns/     # un module par pattern (swings, OB, FVG, sweeps, volume profile, VWAP)
 ├── strategy/     # règles, scoring de confluence, génération de signaux, gestion du risque
-├── backtest/     # moteur de backtest event-driven (trade, portfolio, engine)
-├── reporting/    # métriques de performance, graphiques, rapport
+├── backtest/     # moteur de backtest event-driven (trade, portfolio, engine, coûts réalistes)
+├── reporting/    # métriques de performance (brut/net), graphiques, rapport
+├── validation/   # validation walk-forward (fenêtres train/test, agrégation OOS)
 └── advisor.py    # conseiller d'entrée temps réel (réutilise patterns/ + strategy/)
 ```
 
@@ -121,6 +163,11 @@ pytest
 ## Avertissement
 
 Ce projet est un outil de recherche/backtesting. Il ne constitue pas un
-conseil en investissement et ne doit pas être utilisé tel quel pour du
-trading en argent réel sans validation approfondie (walk-forward, données
-réelles tick-level, coûts de transaction/slippage réalistes).
+conseil en investissement. **Tout ce qu'il a produit jusqu'ici tourne sur
+des données synthétiques (marche aléatoire)** — aucune conclusion sur une
+quelconque rentabilité ne peut en être tirée. Les coûts réalistes
+(slippage, commissions) et la validation walk-forward sont implémentés,
+mais la pièce manquante reste un historique de **vraies données de marché**
+(le loader CSV est prêt à les recevoir, voir `data/loader.py`). Sans ça,
+tout backtest ou conseil produit par cet outil n'a qu'une valeur
+démonstrative du pipeline, pas prédictive.

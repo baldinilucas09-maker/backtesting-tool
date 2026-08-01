@@ -28,7 +28,9 @@ def _trades_to_dataframe(trades: list, risk_cfg) -> pd.DataFrame:
                 "num_exits": len(t.exits),
                 "exit_time": t.exits[-1].time if t.exits else None,
                 "realized_r": t.realized_r(),
-                "realized_pnl": t.realized_pnl(risk_cfg.tick_size, risk_cfg.tick_value),
+                "gross_pnl": t.realized_pnl(risk_cfg.tick_size, risk_cfg.tick_value),
+                "commission": t.total_commission(risk_cfg.commission_per_contract),
+                "net_pnl": t.net_pnl(risk_cfg.tick_size, risk_cfg.tick_value, risk_cfg.commission_per_contract),
                 "win": t.is_win(),
             }
         )
@@ -39,10 +41,11 @@ def _format_summary(metrics: dict) -> str:
     lines = [
         "=== Résumé du backtest ===",
         f"Trades              : {metrics['num_trades']}",
-        f"Win rate            : {metrics['win_rate_pct']:.1f}%",
+        f"Win rate (net)      : {metrics['win_rate_pct']:.1f}%  (brut, avant commissions : {metrics['win_rate_gross_pct']:.1f}%)",
         f"R moyen réalisé      : {metrics['avg_r_realized']:.2f}",
-        f"Profit factor       : {metrics['profit_factor']:.2f}",
-        f"PnL net             : {metrics['net_pnl']:.2f} $",
+        f"Profit factor (net) : {metrics['profit_factor']:.2f}  (brut : {metrics['profit_factor_gross']:.2f})",
+        f"PnL net             : {metrics['net_pnl']:.2f} $  (brut : {metrics['gross_pnl']:.2f} $)",
+        f"Commissions totales : {metrics['total_commission']:.2f} $",
         f"Capital final       : {metrics['final_equity']:.2f} $",
         f"Max drawdown        : {metrics['max_drawdown_pct']:.2f}% ({metrics['max_drawdown_abs']:.2f} $)",
         "",

@@ -15,6 +15,13 @@ class TakeProfitLevel:
     fraction: float
 
 
+def entry_fill_price(signal: Signal, cfg: RiskConfig) -> float:
+    """Prix d'entrée réaliste après slippage défavorable (toujours pire que
+    le prix théorique du signal)."""
+    slip = cfg.slippage_ticks * cfg.tick_size
+    return signal.entry_price + slip if signal.direction == "long" else signal.entry_price - slip
+
+
 def compute_stop_loss(signal: Signal, cfg: RiskConfig) -> float:
     """SL sous (long) / au-dessus (short) du niveau le plus protecteur entre
     l'order block et le sweep, avec un buffer de sécurité en ticks."""

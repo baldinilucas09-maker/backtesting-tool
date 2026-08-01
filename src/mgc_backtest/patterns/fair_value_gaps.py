@@ -71,6 +71,8 @@ def detect_fair_value_gaps(
         records,
         columns=["time", "direction", "top", "bottom", "available_at", "mitigated_at", "expires_at"],
     )
+    for col in ("time", "available_at", "mitigated_at", "expires_at"):
+        out[col] = pd.to_datetime(out[col], utc=True)
     return out.sort_values("time").reset_index(drop=True)
 
 

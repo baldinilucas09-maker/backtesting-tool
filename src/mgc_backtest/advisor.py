@@ -14,7 +14,13 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from mgc_backtest.strategy.risk import TakeProfitLevel, compute_stop_loss, compute_take_profits, position_size
+from mgc_backtest.strategy.risk import (
+    TakeProfitLevel,
+    compute_stop_loss,
+    compute_take_profits,
+    entry_fill_price,
+    position_size,
+)
 from mgc_backtest.strategy.rules import StrategyConfig
 from mgc_backtest.strategy.signals import (
     BarEvaluation,
@@ -43,6 +49,7 @@ class EntryAdvice:
     take_profits: list = field(default_factory=list)
     position_size: int | None = None
     risk_amount: float | None = None
+    entry_commission: float | None = None
     message: str = ""
 
     def to_dict(self) -> dict:
@@ -64,19 +71,22 @@ class EntryAdvice:
             ],
             "position_size": self.position_size,
             "risk_amount": self.risk_amount,
+            "entry_commission": self.entry_commission,
             "message": self.message,
         }
 
 
-def _format_signal_message(sig: Signal, stop: float, tps: list[TakeProfitLevel], size: int, risk_amount: float) -> str:
+def _format_signal_message(
+    sig: Signal, entry: float, stop: float, tps: list[TakeProfitLevel], size: int, risk_amount: float, commission: float
+) -> str:
     tp_txt = " | ".join(f"{tp.r_multiple}R={tp.price:.2f} ({tp.fraction*100:.0f}%)" for tp in tps)
     return (
-        f"[SIGNAL] {_DIR_LABEL[sig.direction]} sur MGC à {sig.time} (prix {sig.entry_price:.2f})\n"
+        f"[SIGNAL] {_DIR_LABEL[sig.direction]} sur MGC à {sig.time} (prix signal {sig.entry_price:.2f})\n"
         f"Confluence : {sig.score}/4 ({', '.join(sorted(set(sig.setup_tags)))})\n"
-        f"Entrée conseillée : {sig.entry_price:.2f}\n"
+        f"Entrée conseillée : {entry:.2f} (slippage inclus)\n"
         f"Stop loss         : {stop:.2f}\n"
         f"Take profits      : {tp_txt}\n"
-        f"Taille de position : {size} contrat(s) (risque ≈ {risk_amount:.2f} $)\n"
+        f"Taille de position : {size} contrat(s) (risque ≈ {risk_amount:.2f} $, commission d'entrée ≈ {commission:.2f} $)\n"
         f"Ceci provient d'un outil de backtesting/recherche, pas d'un conseil en investissement. "
         f"À vérifier manuellement avant toute exécution."
     )
@@ -140,18 +150,21 @@ def evaluate_entry_advice(
 
     if signal_fired:
         sig = bar_evaluation_to_signal(ev)
+        entry = entry_fill_price(sig, config.risk)
         stop = compute_stop_loss(sig, config.risk)
-        tps = compute_take_profits(sig.entry_price, stop, sig.direction, config.risk)
+        tps = compute_take_profits(entry, stop, sig.direction, config.risk)
         cap = capital if capital is not None else config.risk.initial_capital
-        size = position_size(cap, sig.entry_price, stop, config.risk)
+        size = position_size(cap, entry, stop, config.risk)
         risk_amount = cap * config.risk.risk_per_trade_pct / 100.0
+        commission = config.risk.commission_per_contract * size
 
-        advice.entry = sig.entry_price
+        advice.entry = entry
         advice.stop_loss = stop
         advice.take_profits = tps
         advice.position_size = size
         advice.risk_amount = risk_amount
-        advice.message = _format_signal_message(sig, stop, tps, size, risk_amount)
+        advice.entry_commission = commission
+        advice.message = _format_signal_message(sig, entry, stop, tps, size, risk_amount, commission)
     else:
         advice.message = _format_no_signal_message(ev, missing, config.confluence.min_score)
 

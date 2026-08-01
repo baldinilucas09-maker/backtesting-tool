@@ -1,6 +1,6 @@
 import pandas as pd
 
-from mgc_backtest.strategy.risk import compute_stop_loss, compute_take_profits, position_size
+from mgc_backtest.strategy.risk import compute_stop_loss, compute_take_profits, entry_fill_price, position_size
 from mgc_backtest.strategy.rules import RiskConfig
 from mgc_backtest.strategy.signals import Signal
 
@@ -51,3 +51,12 @@ def test_position_size_zero_when_no_risk_distance():
     cfg = RiskConfig(risk_per_trade_pct=1.0, tick_size=0.1, tick_value=1.0)
     size = position_size(capital=10000, entry=100.0, stop=100.0, cfg=cfg)
     assert size == 0
+
+
+def test_entry_fill_price_is_always_worse_than_signal():
+    cfg = RiskConfig(slippage_ticks=3, tick_size=0.1)
+    long_sig = _signal("long", entry_price=100.0, sweep_level=98.0)
+    short_sig = _signal("short", entry_price=100.0, sweep_level=102.0)
+
+    assert entry_fill_price(long_sig, cfg) == 100.0 + 0.3
+    assert entry_fill_price(short_sig, cfg) == 100.0 - 0.3
