@@ -76,6 +76,8 @@ class RiskConfig:
     r_multiples: list = field(default_factory=lambda: [1, 2, 3])
     scale_out_fractions: list = field(default_factory=lambda: [0.34, 0.33, 0.33])
     max_concurrent_trades: int = 1
+    commission_per_contract: float = 0.74  # $ par contrat, par exécution (entrée et chaque sortie)
+    slippage_ticks: float = 1.0            # ticks de slippage défavorable appliqués à chaque exécution
 
 
 @dataclass
