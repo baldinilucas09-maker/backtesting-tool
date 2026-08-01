@@ -30,6 +30,34 @@ pip install -e .
 
 3. Le rapport (métriques + courbe d'equity) est écrit dans `output/`.
 
+## Importer de vraies données depuis TradingView (Pro)
+
+1. Ouvrez un graphique **MGC1!** (Micro Gold Futures, contrat continu) sur
+   TradingView, timeframe **5 minutes**.
+2. Scrollez vers la gauche pour charger un maximum d'historique (TradingView
+   charge plus de bougies au fur et à mesure que vous remontez dans le
+   temps, dans la limite de votre plan).
+3. Clic droit sur le graphique → **"Export chart data"** (ou icône
+   *appareil photo/export* dans la barre d'outils du graphique) → exporter
+   en CSV.
+4. Convertissez le fichier exporté au format attendu par l'outil :
+
+   ```bash
+   python scripts/convert_tradingview_csv.py chemin/vers/export_tradingview.csv \
+       --output data/raw/MGC_5min_real.csv
+   ```
+
+5. Pointez la config dessus (`config/strategy.yaml` → `data.raw_file:
+   data/raw/MGC_5min_real.csv`) et relancez le backtest.
+
+> **Limite à connaître** : l'export TradingView ne couvre que les bougies
+> chargées dans le graphique au moment de l'export (quelques milliers de
+> bougies selon votre plan, souvent 1 à 3 semaines en 5min). C'est un bon
+> point de départ pour valider le pipeline sur du réel, mais un échantillon
+> aussi court reste insuffisant pour juger statistiquement d'un edge — il
+> faudra répéter l'export périodiquement (ou trouver une source
+> d'historique plus longue) pour accumuler assez de trades.
+
 > **Note sur les données synthétiques** : la config par défaut applique la
 > logique de confluence stricte du brief (les 4 conditions — sweep + OB +
 > FVG + POC/AVWAP — doivent être vraies simultanément). Sur une marche
