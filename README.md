@@ -1,9 +1,17 @@
 # mgc-backtest
 
-Outil de backtesting pour une stratégie de trading intraday **SMC/ICT** sur le
-**Micro Gold Futures (MGC)**, basée sur la confluence de plusieurs signaux
-techniques : liquidity sweep HTF, order block HTF, Fair Value Gap, et
-proximité du Point of Control (POC) ou d'un AVWAP.
+Outil de backtesting pour une stratégie de trading intraday **SMC/ICT**,
+basée sur la confluence de plusieurs signaux techniques : liquidity sweep
+HTF, order block HTF, Fair Value Gap, et proximité du Point of Control (POC)
+ou d'un AVWAP.
+
+La logique de détection est agnostique de l'actif (n'importe quel CSV OHLCV
+convient). **Actif principal actuel : BTC Perpetual** (`config/strategy_btc_perp.yaml`,
+hypothèse par défaut Binance BTCUSDT USDT-M — à corriger si vous utilisez un
+autre exchange/contrat). Le projet a démarré sur Micro Gold Futures (MGC),
+dont la config (`config/strategy.yaml`) reste disponible et fonctionnelle.
+Le nom du package (`mgc_backtest`) est un reliquat historique, pas une
+limitation.
 
 ## Installation
 
@@ -22,7 +30,9 @@ pip install -e .
    python scripts/generate_synthetic_data.py
    ```
 
-2. Lancer le backtest :
+2. Lancer le backtest (remplacez `config/strategy.yaml` par
+   `config/strategy_btc_perp.yaml` pour l'actif principal actuel, BTC
+   Perpetual — nécessite d'abord un jeu de données BTC, voir plus bas) :
 
    ```bash
    python scripts/run_backtest.py --config config/strategy.yaml
@@ -32,8 +42,9 @@ pip install -e .
 
 ## Importer de vraies données depuis TradingView (Pro)
 
-1. Ouvrez un graphique **MGC1!** (Micro Gold Futures, contrat continu) sur
-   TradingView, timeframe **5 minutes**.
+1. Ouvrez un graphique **BINANCE:BTCUSDT.P** (BTC Perpetual ; pour MGC :
+   **MGC1!**, Micro Gold Futures contrat continu) sur TradingView, timeframe
+   **5 minutes**.
 2. Scrollez vers la gauche pour charger un maximum d'historique (TradingView
    charge plus de bougies au fur et à mesure que vous remontez dans le
    temps, dans la limite de votre plan).
@@ -44,11 +55,13 @@ pip install -e .
 
    ```bash
    python scripts/convert_tradingview_csv.py chemin/vers/export_tradingview.csv \
-       --output data/raw/MGC_5min_real.csv
+       --output data/raw/BTCUSDT_5min_real.csv
    ```
 
-5. Pointez la config dessus (`config/strategy.yaml` → `data.raw_file:
-   data/raw/MGC_5min_real.csv`) et relancez le backtest.
+5. Le chemin par défaut de `config/strategy_btc_perp.yaml` pointe déjà sur
+   `data/raw/BTCUSDT_5min_real.csv` — déposez le fichier converti à cet
+   emplacement et relancez le backtest (ou ajustez `data.raw_file` si vous
+   utilisez un autre nom).
 
 > **Limite à connaître** : l'export TradingView ne couvre que les bougies
 > chargées dans le graphique au moment de l'export (quelques milliers de
@@ -64,10 +77,14 @@ pip install -e .
 > aléatoire synthétique, cet alignement complet est rare (peu de trades,
 > voire aucun) car le générateur ne reproduit pas la structure d'ordre
 > réelle des marchés. Pour voir le pipeline produire des trades en démo,
-> utilisez `config/strategy_relaxed_demo.yaml` (seuil 3/4) :
+> utilisez la config assouplie (seuil 3/4) correspondante :
 > ```bash
-> python scripts/run_backtest.py --config config/strategy_relaxed_demo.yaml
+> python scripts/run_backtest.py --config config/strategy_relaxed_demo.yaml            # MGC
+> python scripts/run_backtest.py --config config/strategy_btc_perp_relaxed_demo.yaml    # BTC perp
 > ```
+> (le jeu BTC synthétique se génère avec
+> `python scripts/generate_synthetic_data.py --start-price 60000 --base-vol 0.0018 \
+> --include-weekends --out data/raw/BTCUSDT_5min_synthetic.csv`)
 > Sur de vraies données de marché, la confluence stricte 4/4 redevient
 > pertinente.
 
@@ -86,7 +103,16 @@ pip install -e .
 - Stop loss sous/au-dessus de l'order block ou du sweep.
 - Take profit multi-cibles (1R/2R/3R par défaut) avec scaling out.
 
-Tous les seuils sont paramétrables dans `config/strategy.yaml`.
+Tous les seuils sont paramétrables dans `config/strategy.yaml` (ou
+`config/strategy_btc_perp.yaml`).
+
+> **Garde-fou** : le sweep utilisé pour placer le stop peut dater de
+> plusieurs bougies HTF (`max_bars_since_sweep`). Si le prix a suffisamment
+> dérivé entre-temps, le stop calculé peut se retrouver du mauvais côté du
+> prix d'entrée (ex : stop au-dessus de l'entrée pour un long) — un cas
+> détecté en testant sur données BTC plus volatiles que le jeu MGC initial.
+> Un tel setup est désormais automatiquement rejeté (`is_stop_valid` dans
+> `strategy/risk.py`), aussi bien en backtest qu'en conseil d'entrée.
 
 ## Conseiller d'entrée en position
 
@@ -131,12 +157,20 @@ vérification manuelle avant exécution.
 ## Coûts réalistes (slippage + commissions)
 
 Le backtest applique par défaut des coûts de transaction réalistes,
-paramétrables dans `config/strategy.yaml` (section `risk`) :
+paramétrables dans la section `risk` de la config :
 - `slippage_ticks` : slippage défavorable appliqué à **chaque** exécution
   (entrée, chaque sortie partielle/totale) — le fill est toujours pire que
   le niveau théorique visé, jamais meilleur.
-- `commission_per_contract` : commission par contrat, facturée à l'entrée
-  et à chaque sortie (à ajuster selon votre broker réel).
+- `commission_per_contract` : commission fixe par unité de taille, facturée
+  à l'entrée et à chaque sortie (modèle futures — MGC : $/contrat).
+- `commission_pct` : commission en % du notionnel (prix x taille), facturée
+  à l'entrée et à chaque sortie (modèle crypto perpetual — ex : taker fee
+  Binance ~0.05%). Les deux modèles sont cumulables mais un seul est utile
+  par actif (l'autre à 0).
+- `qty_step` : granularité minimale de la taille de position — `1.0` pour
+  des contrats entiers (futures), `0.001` par exemple pour du BTC (la taille
+  de position devient alors une quantité fractionnaire, pas un nombre de
+  contrats).
 
 Le rapport distingue systématiquement performance **brute** (mouvement de
 prix seul) et **nette** (après commissions) — c'est le net qui reflète ce

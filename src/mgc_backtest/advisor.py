@@ -19,6 +19,7 @@ from mgc_backtest.strategy.risk import (
     compute_stop_loss,
     compute_take_profits,
     entry_fill_price,
+    is_stop_valid,
     position_size,
 )
 from mgc_backtest.strategy.rules import StrategyConfig
@@ -134,7 +135,16 @@ def evaluate_entry_advice(
         )
 
     missing = [k for k, v in ev.check.checks.items() if not v]
-    signal_fired = ev.has_recent_sweep and ev.check.score >= config.confluence.min_score
+    candidate_fired = ev.has_recent_sweep and ev.check.score >= config.confluence.min_score
+
+    sig = entry = stop = None
+    stale_stop = False
+    if candidate_fired:
+        sig = bar_evaluation_to_signal(ev)
+        entry = entry_fill_price(sig, config.risk)
+        stop = compute_stop_loss(sig, config.risk)
+        stale_stop = not is_stop_valid(sig.direction, entry, stop)
+    signal_fired = candidate_fired and not stale_stop
 
     advice = EntryAdvice(
         time=ev.time,
@@ -148,15 +158,20 @@ def evaluate_entry_advice(
         missing=missing,
     )
 
-    if signal_fired:
-        sig = bar_evaluation_to_signal(ev)
-        entry = entry_fill_price(sig, config.risk)
-        stop = compute_stop_loss(sig, config.risk)
+    if stale_stop:
+        advice.message = (
+            f"[EN ATTENTE] Confluence {ev.check.score}/{config.confluence.min_score} atteinte à {ev.time} "
+            f"(prix {ev.price:.2f}), mais le sweep utilisé pour le stop date de trop longtemps : le prix a "
+            f"dérivé et le stop calculé se retrouve du mauvais côté de l'entrée. Setup rejeté (pas fiable)."
+        )
+    elif signal_fired:
         tps = compute_take_profits(entry, stop, sig.direction, config.risk)
         cap = capital if capital is not None else config.risk.initial_capital
         size = position_size(cap, entry, stop, config.risk)
         risk_amount = cap * config.risk.risk_per_trade_pct / 100.0
         commission = config.risk.commission_per_contract * size
+        if config.risk.commission_pct:
+            commission += (config.risk.commission_pct / 100.0) * entry * size
 
         advice.entry = entry
         advice.stop_loss = stop

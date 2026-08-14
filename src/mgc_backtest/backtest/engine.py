@@ -3,8 +3,9 @@ trades ouverts (SL/TP/scaling out) et ouvre de nouveaux trades sur signal.
 
 Coûts réalistes : chaque entrée subit un slippage défavorable (le fill est
 toujours pire que le prix du signal) avant même le calcul du stop/des take
-profits, et une commission par contrat est prélevée à chaque exécution
-(entrée + chaque sortie), pas seulement en fin de trade.
+profits, et une commission (fixe par unité de taille et/ou en % du
+notionnel) est prélevée à chaque exécution (entrée + chaque sortie), pas
+seulement en fin de trade.
 """
 
 from __future__ import annotations
@@ -15,7 +16,13 @@ import pandas as pd
 
 from mgc_backtest.backtest.portfolio import Portfolio
 from mgc_backtest.backtest.trade import Trade
-from mgc_backtest.strategy.risk import compute_stop_loss, compute_take_profits, entry_fill_price, position_size
+from mgc_backtest.strategy.risk import (
+    compute_stop_loss,
+    compute_take_profits,
+    entry_fill_price,
+    is_stop_valid,
+    position_size,
+)
 from mgc_backtest.strategy.rules import StrategyConfig
 from mgc_backtest.strategy.signals import Signal, generate_signals
 
@@ -27,11 +34,17 @@ class BacktestResult:
     signals: list = field(default_factory=list)
 
 
+def _commission(cfg, price: float, size: float) -> float:
+    flat = cfg.commission_per_contract * size
+    pct = (cfg.commission_pct / 100.0) * price * size if cfg.commission_pct else 0.0
+    return flat + pct
+
+
 def _apply_exit_pnl(portfolio: Portfolio, trade: Trade, new_exits: list, cfg) -> None:
     for e in new_exits:
         diff = (e.price - trade.entry_price) if trade.direction == "long" else (trade.entry_price - e.price)
         portfolio.apply_pnl((diff / cfg.tick_size) * cfg.tick_value * e.size)
-        portfolio.apply_pnl(-cfg.commission_per_contract * e.size)
+        portfolio.apply_pnl(-_commission(cfg, e.price, e.size))
 
 
 def run_backtest(df_ltf: pd.DataFrame, df_htf: pd.DataFrame, config: StrategyConfig) -> BacktestResult:
@@ -67,6 +80,10 @@ def run_backtest(df_ltf: pd.DataFrame, df_htf: pd.DataFrame, config: StrategyCon
 
             entry_price = entry_fill_price(sig, config.risk)
             stop = compute_stop_loss(sig, config.risk)
+            if not is_stop_valid(sig.direction, entry_price, stop):
+                # sweep/OB obsolète par rapport au prix actuel (le prix a dérivé
+                # depuis) : le stop calculé n'a plus de sens, setup rejeté
+                continue
             tps = compute_take_profits(entry_price, stop, sig.direction, config.risk)
             size = position_size(portfolio.capital, entry_price, stop, config.risk)
             if size <= 0:
@@ -87,7 +104,7 @@ def run_backtest(df_ltf: pd.DataFrame, df_htf: pd.DataFrame, config: StrategyCon
                 tick_size=config.risk.tick_size,
             )
             open_trades.append(trade)
-            portfolio.apply_pnl(-config.risk.commission_per_contract * size)
+            portfolio.apply_pnl(-_commission(config.risk, entry_price, size))
 
         portfolio.record(t)
 

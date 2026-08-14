@@ -1,17 +1,17 @@
-# Variante "démo" de config/strategy.yaml : seuil de confluence assoupli
-# (3 conditions sur 4 au lieu de 4/4 strict) pour observer des trades sur le
-# jeu de données synthétique (marche aléatoire) fourni par défaut. Les vraies
-# données de marché, plus structurées, produiront naturellement plus
-# d'alignements complets des 4 conditions que ce random-walk de démonstration.
+# Variante "démo" de config/strategy_btc_perp.yaml : pointe sur le jeu de
+# données BTC synthétique (généré via scripts/generate_synthetic_data.py
+# --start-price 60000 --base-vol 0.0018 --include-weekends) et assouplit le
+# seuil de confluence (3/4 au lieu de 4/4) pour observer des trades sur ce
+# random-walk de démonstration, le temps qu'un historique BTC réel arrive.
 #
-# Usage : python scripts/run_backtest.py --config config/strategy_relaxed_demo.yaml
+# Usage : python scripts/run_backtest.py --config config/strategy_btc_perp_relaxed_demo.yaml
 
 timeframes:
   ltf: "5min"
   htf: "4h"
 
 data:
-  raw_file: "data/raw/MGC_5min_synthetic.csv"
+  raw_file: "data/raw/BTCUSDT_5min_synthetic.csv"
   timezone: "UTC"
 
 swings:
@@ -53,14 +53,14 @@ risk:
   risk_per_trade_pct: 1.0
   stop_buffer_ticks: 2
   tick_size: 0.1
-  tick_value: 1.0
+  tick_value: 0.1
   r_multiples: [1, 2, 3]
   scale_out_fractions: [0.34, 0.33, 0.33]
   max_concurrent_trades: 1
-  commission_per_contract: 0.74
-  commission_pct: 0.0
-  slippage_ticks: 1.0
-  qty_step: 1.0
+  commission_per_contract: 0.0
+  commission_pct: 0.05
+  slippage_ticks: 2.0
+  qty_step: 0.001
 
 session_filter:
   enabled: false

@@ -1,0 +1,65 @@
+# Configuration de la stratégie de backtest SMC/ICT sur BTC Perpetual
+# (actif principal). Hypothèse par défaut : Binance BTCUSDT USDT-M
+# Perpetual (contrat linéaire) - à corriger si vous utilisez un autre
+# exchange/contrat (tick size, qty_step et commissions diffèrent).
+
+timeframes:
+  ltf: "5min"
+  htf: "4h"
+
+data:
+  raw_file: "data/raw/BTCUSDT_5min_real.csv"
+  timezone: "UTC"
+
+swings:
+  left_bars: 2
+  right_bars: 2
+
+liquidity_sweeps:
+  lookback_swings: 20
+  max_bars_since_sweep: 12
+
+order_blocks:
+  impulse_atr_mult: 1.5
+  atr_period: 14
+  max_ob_age_bars: 40
+
+fair_value_gaps:
+  min_gap_atr_mult: 0.0
+  max_fvg_age_bars: 30
+
+volume_profile:
+  window_bars: 48
+  n_bins: 30
+
+vwap:
+  anchor: "session"
+  session_start_utc: "00:00"
+
+confluence:
+  proximity_atr_mult: 0.5
+  min_score: 4
+  required:
+    sweep: true
+    order_block: true
+    fvg: true
+    poc_or_avwap: true
+
+risk:
+  initial_capital: 10000         # en USDT
+  risk_per_trade_pct: 1.0
+  stop_buffer_ticks: 2
+  tick_size: 0.1                 # incrément de prix Binance BTCUSDT perp (0.1 USDT)
+  tick_value: 0.1                # = tick_size : le PnL se calcule directement en (prix x quantité BTC), pas de multiplicateur de contrat
+  r_multiples: [1, 2, 3]
+  scale_out_fractions: [0.34, 0.33, 0.33]
+  max_concurrent_trades: 1
+  commission_per_contract: 0.0   # non utilisé ici (modèle futures) - voir commission_pct
+  commission_pct: 0.05           # taker fee Binance USDT-M ~0.05% du notionnel, par exécution
+  slippage_ticks: 2.0            # pas de carnet d'ordres réel modélisé -> un peu plus conservateur que MGC
+  qty_step: 0.001                # quantité minimale Binance BTCUSDT perp (0.001 BTC)
+
+session_filter:
+  enabled: false
+  start_utc: "12:00"
+  end_utc: "20:00"

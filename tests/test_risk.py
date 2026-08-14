@@ -1,6 +1,12 @@
 import pandas as pd
 
-from mgc_backtest.strategy.risk import compute_stop_loss, compute_take_profits, entry_fill_price, position_size
+from mgc_backtest.strategy.risk import (
+    compute_stop_loss,
+    compute_take_profits,
+    entry_fill_price,
+    is_stop_valid,
+    position_size,
+)
 from mgc_backtest.strategy.rules import RiskConfig
 from mgc_backtest.strategy.signals import Signal
 
@@ -60,3 +66,23 @@ def test_entry_fill_price_is_always_worse_than_signal():
 
     assert entry_fill_price(long_sig, cfg) == 100.0 + 0.3
     assert entry_fill_price(short_sig, cfg) == 100.0 - 0.3
+
+
+def test_is_stop_valid_rejects_stop_on_wrong_side_of_entry():
+    # cas normal : stop du bon côté
+    assert is_stop_valid("long", entry=100.0, stop=98.0) is True
+    assert is_stop_valid("short", entry=100.0, stop=102.0) is True
+    # sweep obsolète : le prix a dérivé, le stop se retrouve du mauvais côté
+    assert is_stop_valid("long", entry=100.0, stop=101.0) is False
+    assert is_stop_valid("short", entry=100.0, stop=99.0) is False
+
+
+def test_fractional_position_size_respects_qty_step():
+    cfg = RiskConfig(risk_per_trade_pct=1.0, tick_size=0.1, tick_value=0.1, qty_step=0.001)
+    # risque = 100$ (1% de 10000), risque par unité = |entry-stop| = 100 -> 1.0 BTC
+    size = position_size(capital=10000, entry=50000.0, stop=49900.0, cfg=cfg)
+    assert size == 1.0
+
+    # taille non-ronde : arrondie à la baisse au multiple de qty_step
+    size2 = position_size(capital=10000, entry=50000.0, stop=49837.5, cfg=cfg)
+    assert size2 == 0.615  # 100/162.5 = 0.6153... -> floor à 0.615

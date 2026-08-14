@@ -9,6 +9,7 @@ réelles : le loader attend les colonnes
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -20,7 +21,9 @@ def generate_synthetic_ohlcv(
     n_days: int = 60,
     bar_minutes: int = 5,
     start_price: float = 2400.0,
+    base_vol: float = 0.0006,
     seed: int = 42,
+    include_weekends: bool = False,
 ) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     bars_per_day = int(24 * 60 / bar_minutes)
@@ -29,14 +32,13 @@ def generate_synthetic_ohlcv(
     day = pd.Timestamp(start, tz="UTC")
     days_added = 0
     while days_added < n_days:
-        if day.weekday() < 5:  # lun-ven, marché fermé le week-end
+        if include_weekends or day.weekday() < 5:  # futures : marché fermé le week-end ; crypto : 24/7
             timestamps.extend(pd.date_range(day, periods=bars_per_day, freq=f"{bar_minutes}min", tz="UTC"))
             days_added += 1
         day += pd.Timedelta(days=1)
     idx = pd.DatetimeIndex(timestamps)
     n = len(idx)
 
-    base_vol = 0.0006
     returns = rng.normal(0, base_vol, n)
     jump_mask = rng.random(n) < 0.01  # ~1% de bougies avec un mouvement impulsif
     returns += rng.normal(0, 0.004, n) * jump_mask
@@ -70,8 +72,23 @@ def generate_synthetic_ohlcv(
 
 
 def main() -> None:
-    df = generate_synthetic_ohlcv()
-    out_path = Path(__file__).resolve().parent.parent / "data" / "raw" / "MGC_5min_synthetic.csv"
+    parser = argparse.ArgumentParser(description="Génère un CSV OHLCV synthétique pour développer/tester le pipeline")
+    parser.add_argument("--start-price", type=float, default=2400.0)
+    parser.add_argument("--base-vol", type=float, default=0.0006, help="Volatilité par bougie (écart-type des rendements)")
+    parser.add_argument("--n-days", type=int, default=60)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--include-weekends", action="store_true", help="Marché 24/7 (crypto) au lieu de lun-ven (futures)")
+    parser.add_argument("--out", default="data/raw/MGC_5min_synthetic.csv")
+    args = parser.parse_args()
+
+    df = generate_synthetic_ohlcv(
+        n_days=args.n_days,
+        start_price=args.start_price,
+        base_vol=args.base_vol,
+        seed=args.seed,
+        include_weekends=args.include_weekends,
+    )
+    out_path = Path(__file__).resolve().parent.parent / args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
     print(f"{len(df)} bougies synthétiques écrites dans {out_path}")

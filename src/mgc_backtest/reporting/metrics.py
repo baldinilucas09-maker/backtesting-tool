@@ -47,8 +47,13 @@ def _profit_factor(pnls: list) -> float:
 
 def compute_metrics(trades: list, equity_curve: pd.Series, risk_cfg: RiskConfig) -> dict:
     gross_pnls = [t.realized_pnl(risk_cfg.tick_size, risk_cfg.tick_value) for t in trades]
-    net_pnls = [t.net_pnl(risk_cfg.tick_size, risk_cfg.tick_value, risk_cfg.commission_per_contract) for t in trades]
-    total_commission = sum(t.total_commission(risk_cfg.commission_per_contract) for t in trades)
+    net_pnls = [
+        t.net_pnl(risk_cfg.tick_size, risk_cfg.tick_value, risk_cfg.commission_per_contract, risk_cfg.commission_pct)
+        for t in trades
+    ]
+    total_commission = sum(
+        t.total_commission(risk_cfg.commission_per_contract, risk_cfg.commission_pct) for t in trades
+    )
     rs = [t.realized_r() for t in trades]
     num_trades = len(trades)
 

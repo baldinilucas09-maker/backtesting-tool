@@ -17,18 +17,34 @@ import pandas as pd
 
 from mgc_backtest.strategy.risk import TakeProfitLevel
 
+_SIZE_EPSILON = 1e-9  # tolérance flottante pour les tailles fractionnaires (crypto)
 
-def split_position_size(size: int, fractions: list[float]) -> list[int]:
-    """Répartit ``size`` contrats entre les paliers selon ``fractions``,
-    en garantissant que la somme vaut exactement ``size`` (méthode du plus
-    grand reste)."""
-    raw = [size * f for f in fractions]
-    floors = [int(x) for x in raw]
-    remainder = size - sum(floors)
-    order = sorted(range(len(raw)), key=lambda i: raw[i] - floors[i], reverse=True)
-    for i in order[:remainder]:
-        floors[i] += 1
-    return floors
+
+def split_position_size(size: float, fractions: list[float]) -> list:
+    """Répartit ``size`` entre les paliers selon ``fractions``, en
+    garantissant que la somme vaut exactement ``size``.
+
+    Pour une taille entière (contrats futures), utilise la méthode du plus
+    grand reste (résultat entier). Pour une taille fractionnaire (quantité
+    crypto), répartit proportionnellement et attribue le reste exact au
+    dernier palier."""
+    if float(size).is_integer():
+        size_int = int(round(size))
+        raw = [size_int * f for f in fractions]
+        floors = [int(x) for x in raw]
+        remainder = size_int - sum(floors)
+        order = sorted(range(len(raw)), key=lambda i: raw[i] - floors[i], reverse=True)
+        for i in order[:remainder]:
+            floors[i] += 1
+        return floors
+
+    result: list[float] = []
+    allocated = 0.0
+    for i, f in enumerate(fractions):
+        qty = (size - allocated) if i == len(fractions) - 1 else size * f
+        result.append(qty)
+        allocated += qty
+    return result
 
 
 @dataclass
@@ -85,7 +101,7 @@ class Trade:
         return price - slip if self.direction == "long" else price + slip
 
     def process_bar(self, time: pd.Timestamp, high: float, low: float) -> None:
-        if self.status != "open" or self.remaining_size <= 0:
+        if self.status != "open" or self.remaining_size <= _SIZE_EPSILON:
             return
 
         sl_hit = (low <= self.stop_loss) if self.direction == "long" else (high >= self.stop_loss)
@@ -99,24 +115,24 @@ class Trade:
             return
 
         for i, tp in enumerate(self.take_profits):
-            if self.tp_hit_flags[i] or self.planned_sizes[i] <= 0:
+            if self.tp_hit_flags[i] or self.planned_sizes[i] <= _SIZE_EPSILON:
                 continue
             hit = (high >= tp.price) if self.direction == "long" else (low <= tp.price)
             if not hit:
                 continue
             exit_size = min(self.planned_sizes[i], self.remaining_size)
-            if exit_size <= 0:
+            if exit_size <= _SIZE_EPSILON:
                 continue
             fill_price = self._slipped(tp.price)
             self.exits.append(ExitFill(time, fill_price, exit_size, "take_profit", tp.r_multiple))
             self.remaining_size -= exit_size
             self.tp_hit_flags[i] = True
 
-        if self.remaining_size <= 0:
+        if self.remaining_size <= _SIZE_EPSILON:
             self.status = "closed"
 
     def force_close(self, time: pd.Timestamp, price: float) -> None:
-        if self.remaining_size > 0:
+        if self.remaining_size > _SIZE_EPSILON:
             fill_price = self._slipped(price)
             self.exits.append(
                 ExitFill(time, fill_price, self.remaining_size, "forced_close", self._r_multiple(fill_price))
@@ -138,14 +154,31 @@ class Trade:
             total += (diff / tick_size) * tick_value * e.size
         return total
 
-    def total_commission(self, commission_per_contract: float) -> float:
-        """Commission totale du trade : une exécution à l'entrée (``size``
-        contrats) plus une exécution par sortie (partielle ou totale)."""
+    def total_commission(self, commission_per_contract: float = 0.0, commission_pct: float = 0.0) -> float:
+        """Commission totale du trade : une exécution à l'entrée plus une
+        exécution par sortie (partielle ou totale). Deux modèles cumulables :
+        ``commission_per_contract`` (montant fixe par unité de taille, type
+        futures) et ``commission_pct`` (% du notionnel prix x taille, type
+        crypto perpetual)."""
         exited_size = sum(e.size for e in self.exits)
-        return commission_per_contract * (self.size + exited_size)
+        flat = commission_per_contract * (self.size + exited_size)
 
-    def net_pnl(self, tick_size: float, tick_value: float, commission_per_contract: float) -> float:
-        return self.realized_pnl(tick_size, tick_value) - self.total_commission(commission_per_contract)
+        pct_cost = 0.0
+        if commission_pct:
+            entry_notional = self.entry_price * self.size
+            exit_notional = sum(e.price * e.size for e in self.exits)
+            pct_cost = (commission_pct / 100.0) * (entry_notional + exit_notional)
+
+        return flat + pct_cost
+
+    def net_pnl(
+        self,
+        tick_size: float,
+        tick_value: float,
+        commission_per_contract: float = 0.0,
+        commission_pct: float = 0.0,
+    ) -> float:
+        return self.realized_pnl(tick_size, tick_value) - self.total_commission(commission_per_contract, commission_pct)
 
     def is_win(self) -> bool:
         return self.realized_r() > 0

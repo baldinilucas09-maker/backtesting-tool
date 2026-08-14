@@ -29,8 +29,10 @@ def _trades_to_dataframe(trades: list, risk_cfg) -> pd.DataFrame:
                 "exit_time": t.exits[-1].time if t.exits else None,
                 "realized_r": t.realized_r(),
                 "gross_pnl": t.realized_pnl(risk_cfg.tick_size, risk_cfg.tick_value),
-                "commission": t.total_commission(risk_cfg.commission_per_contract),
-                "net_pnl": t.net_pnl(risk_cfg.tick_size, risk_cfg.tick_value, risk_cfg.commission_per_contract),
+                "commission": t.total_commission(risk_cfg.commission_per_contract, risk_cfg.commission_pct),
+                "net_pnl": t.net_pnl(
+                    risk_cfg.tick_size, risk_cfg.tick_value, risk_cfg.commission_per_contract, risk_cfg.commission_pct
+                ),
                 "win": t.is_win(),
             }
         )

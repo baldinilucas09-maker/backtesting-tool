@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from mgc_backtest.strategy.rules import RiskConfig
@@ -38,6 +39,15 @@ def compute_stop_loss(signal: Signal, cfg: RiskConfig) -> float:
         return base + buffer
 
 
+def is_stop_valid(direction: str, entry: float, stop: float) -> bool:
+    """Le sweep/order block utilisé pour placer le stop peut dater de
+    plusieurs bougies HTF (``max_bars_since_sweep``) : si le prix a dérivé
+    entre-temps, le stop calculé peut se retrouver du mauvais côté du prix
+    d'entrée réel (ex: stop au-dessus de l'entrée pour un long). Un tel
+    setup est invalide et ne doit pas être tradé."""
+    return stop < entry if direction == "long" else stop > entry
+
+
 def compute_take_profits(entry: float, stop: float, direction: str, cfg: RiskConfig) -> list[TakeProfitLevel]:
     risk_per_unit = abs(entry - stop)
     levels = []
@@ -47,12 +57,16 @@ def compute_take_profits(entry: float, stop: float, direction: str, cfg: RiskCon
     return levels
 
 
-def position_size(capital: float, entry: float, stop: float, cfg: RiskConfig) -> int:
-    """Nombre de contrats tel que la perte au stop loss ne dépasse pas
-    ``risk_per_trade_pct`` du capital courant."""
+def position_size(capital: float, entry: float, stop: float, cfg: RiskConfig) -> float:
+    """Taille de position (contrats entiers pour un future, quantité
+    fractionnaire pour un perpetual crypto via ``qty_step``) telle que la
+    perte au stop loss ne dépasse pas ``risk_per_trade_pct`` du capital
+    courant, arrondie à la baisse au multiple de ``qty_step`` le plus proche."""
     risk_amount = capital * cfg.risk_per_trade_pct / 100.0
     risk_ticks = abs(entry - stop) / cfg.tick_size
-    risk_per_contract = risk_ticks * cfg.tick_value
-    if risk_per_contract <= 0:
-        return 0
-    return max(int(risk_amount // risk_per_contract), 0)
+    risk_per_unit = risk_ticks * cfg.tick_value
+    if risk_per_unit <= 0:
+        return 0.0
+    raw_size = risk_amount / risk_per_unit
+    steps = math.floor(raw_size / cfg.qty_step + 1e-9)
+    return max(steps, 0) * cfg.qty_step
