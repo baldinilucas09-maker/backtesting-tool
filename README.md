@@ -40,7 +40,25 @@ pip install -e .
 
 3. Le rapport (métriques + courbe d'equity) est écrit dans `output/`.
 
-## Importer de vraies données depuis TradingView (Pro)
+## Importer de vraies données
+
+### Option recommandée : historique gratuit Binance (aucun compte requis)
+
+Binance publie tout son historique de klines (chandelles) gratuitement, en
+téléchargement direct, sans compte ni abonnement :
+[data.binance.vision](https://data.binance.vision/?prefix=data/futures/um/monthly/klines/BTCUSDT/5m/)
+
+1. Sur cette page, cliquez sur un ou plusieurs fichiers `BTCUSDT-5m-AAAA-MM.zip`
+   (un par mois) pour les télécharger.
+2. Convertissez-les (plusieurs fichiers acceptés en une commande, ils sont
+   fusionnés et triés) :
+
+   ```bash
+   python scripts/convert_binance_klines.py chemin/vers/*.zip \
+       --output data/raw/BTCUSDT_5min_real.csv
+   ```
+
+### Alternative : export TradingView (nécessite un plan payant)
 
 1. Ouvrez un graphique **BINANCE:BTCUSDT.P** (BTC Perpetual ; pour MGC :
    **MGC1!**, Micro Gold Futures contrat continu) sur TradingView, timeframe
@@ -48,9 +66,8 @@ pip install -e .
 2. Scrollez vers la gauche pour charger un maximum d'historique (TradingView
    charge plus de bougies au fur et à mesure que vous remontez dans le
    temps, dans la limite de votre plan).
-3. Clic droit sur le graphique → **"Export chart data"** (ou icône
-   *appareil photo/export* dans la barre d'outils du graphique) → exporter
-   en CSV.
+3. Clic droit sur le graphique → **"Export chart data"** (fonctionnalité
+   réservée aux plans payants Essential/Plus/Premium) → exporter en CSV.
 4. Convertissez le fichier exporté au format attendu par l'outil :
 
    ```bash
@@ -58,8 +75,8 @@ pip install -e .
        --output data/raw/BTCUSDT_5min_real.csv
    ```
 
-5. Le chemin par défaut de `config/strategy_btc_perp.yaml` pointe déjà sur
-   `data/raw/BTCUSDT_5min_real.csv` — déposez le fichier converti à cet
+Dans les deux cas, le chemin par défaut de `config/strategy_btc_perp.yaml`
+pointe déjà sur `data/raw/BTCUSDT_5min_real.csv` — déposez le fichier converti à cet
    emplacement et relancez le backtest (ou ajustez `data.raw_file` si vous
    utilisez un autre nom).
 
