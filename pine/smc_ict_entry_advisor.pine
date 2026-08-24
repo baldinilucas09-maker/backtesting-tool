@@ -1,0 +1,295 @@
+//@version=6
+// Conseiller d'entrée SMC/ICT — port Pine Script de la logique de confluence
+// backtestée en Python (mgc_backtest.strategy.confluence) : liquidity sweep
+// HTF + order block HTF + Fair Value Gap + proximité AVWAP.
+//
+// AVERTISSEMENT : ceci est un outil de VISUALISATION/AIDE À LA DÉCISION, pas
+// un signal de trading autonome ni un conseil en investissement. Le POC
+// (Fixed Range Volume Profile) du backtest Python n'est pas reproduit ici
+// (trop coûteux à calculer en Pine sans outil de binning natif) : la
+// condition "proximité POC/AVWAP" est donc approximée par l'AVWAP seul.
+//
+// Ce script n'a pas pu être testé dans un compilateur Pine réel dans cet
+// environnement — s'il y a une erreur de compilation au premier collage
+// dans l'éditeur Pine de TradingView, copiez le message d'erreur exact et
+// renvoyez-le, correction immédiate.
+
+indicator("SMC/ICT Confluence - Conseil d'entrée", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=200)
+
+// ============================== INPUTS ======================================
+grpHTF = "Contexte HTF"
+htf = input.timeframe("240", "Timeframe contexte (HTF)", group=grpHTF)
+
+grpSwings = "Swings"
+swingLeft = input.int(2, "Bougies gauche", minval=1, group=grpSwings)
+swingRight = input.int(2, "Bougies droite", minval=1, group=grpSwings)
+
+grpSweep = "Liquidity Sweep"
+maxBarsSinceSweep = input.int(12, "Validité du sweep (bougies HTF)", minval=1, group=grpSweep)
+
+grpOB = "Order Block"
+obAtrMult = input.float(1.5, "Seuil impulsion (x ATR)", minval=0.1, step=0.1, group=grpOB)
+obAtrPeriod = input.int(14, "Période ATR (HTF)", minval=2, group=grpOB)
+maxObAgeBars = input.int(40, "Âge max OB (bougies HTF)", minval=1, group=grpOB)
+
+grpFVG = "Fair Value Gap"
+useFvg = input.bool(true, "Utiliser le FVG", group=grpFVG)
+maxFvgAgeBars = input.int(30, "Âge max FVG (bougies du graphique)", minval=1, group=grpFVG)
+
+grpFair = "Zone de juste valeur"
+useFairValue = input.bool(true, "Utiliser l'AVWAP (proxy du POC, non reproduit)", group=grpFair)
+proximityAtrMult = input.float(0.5, "Tolérance proximité (x ATR)", minval=0.05, step=0.05, group=grpFair)
+
+grpConf = "Confirmation"
+useConfirmation = input.bool(false, "Exiger une bougie de confirmation (clôture dans le sens du trade)", group=grpConf)
+
+grpScore = "Score de confluence"
+requireSweep = input.bool(true, "Sweep requis", group=grpScore)
+requireOB = input.bool(true, "Order Block requis", group=grpScore)
+minScore = input.int(4, "Score minimum pour signal", minval=1, maxval=5, group=grpScore)
+
+grpDisp = "Affichage"
+showZones = input.bool(true, "Afficher les zones OB/FVG", group=grpDisp)
+showAvwap = input.bool(true, "Afficher l'AVWAP", group=grpDisp)
+
+// ============================== HTF DATA =====================================
+[htfOpen, htfHigh, htfLow, htfClose, htfTime, htfPivHigh, htfPivLow] = request.security(
+     syminfo.tickerid, htf,
+     [open, high, low, close, time, ta.pivothigh(swingLeft, swingRight), ta.pivotlow(swingLeft, swingRight)],
+     lookahead = barmerge.lookahead_off)
+
+htfAtr = request.security(syminfo.tickerid, htf, ta.atr(obAtrPeriod), lookahead = barmerge.lookahead_off)
+
+var int htfBarCounter = 0
+var int lastHtfTime = na
+isNewHtfBar = na(lastHtfTime) or htfTime != lastHtfTime
+
+// ============================== ÉTAT PERSISTANT ==============================
+// Pivots (pour détection de sweep)
+var array<float> pivLowPrice  = array.new<float>()
+var array<bool>  pivLowSwept  = array.new<bool>()
+var array<float> pivHighPrice = array.new<float>()
+var array<bool>  pivHighSwept = array.new<bool>()
+
+// Bougies HTF récentes (pour la recherche d'order block)
+var array<float> htfOArr = array.new<float>()
+var array<float> htfHArr = array.new<float>()
+var array<float> htfLArr = array.new<float>()
+var array<float> htfCArr = array.new<float>()
+
+// Order blocks : top/bottom/direction(1=bullish,-1=bearish)/disponible dès/expire/mitigé
+var array<float> obTop         = array.new<float>()
+var array<float> obBottom      = array.new<float>()
+var array<int>   obDir         = array.new<int>()
+var array<int>   obAvailableAt = array.new<int>()
+var array<int>   obExpireAt    = array.new<int>()
+var array<bool>  obMitigated   = array.new<bool>()
+var array<box>   obBoxRef      = array.new<box>()
+
+// Fair Value Gaps (détectés sur le timeframe du graphique = LTF)
+var array<float> fvgTop         = array.new<float>()
+var array<float> fvgBottom      = array.new<float>()
+var array<int>   fvgDir         = array.new<int>()
+var array<int>   fvgAvailableAt = array.new<int>()
+var array<int>   fvgExpireAt    = array.new<int>()
+var array<bool>  fvgMitigated   = array.new<bool>()
+var array<box>   fvgBoxRef      = array.new<box>()
+
+var int   lastSweepDir    = na  // 1 = bullish (sell-side balayé), -1 = bearish (buy-side balayé)
+var int   lastSweepBarIdx = na
+// non-var (réinitialisés à chaque bougie) : ne doivent être vrais que sur la
+// bougie où le sweep vient de se produire, pas persister jusqu'à la suivante
+newSweepFlag = false
+newSweepDirFlag = int(na)
+
+// ============================== AVWAP (session UTC, proxy du POC) ============
+utcDay = dayofmonth(time, "UTC")
+newSession = na(utcDay[1]) or utcDay != utcDay[1]
+typicalPrice = (high + low + close) / 3.0
+var float cumPV = 0.0
+var float cumVol = 0.0
+if newSession
+    cumPV := 0.0
+    cumVol := 0.0
+cumPV := cumPV + typicalPrice * volume
+cumVol := cumVol + volume
+avwapValue = cumVol > 0 ? cumPV / cumVol : na
+
+ltfAtr = ta.atr(14)
+
+// ============================== TRAITEMENT PAR NOUVELLE BOUGIE HTF ===========
+if isNewHtfBar
+    lastHtfTime := htfTime
+    htfBarCounter += 1
+    newSweepFlag := false
+    newSweepDirFlag := na
+
+    // --- 1) Sweep : vérifie les pivots déjà connus (avant cette bougie) ---
+    if array.size(pivLowPrice) > 0
+        for i = array.size(pivLowPrice) - 1 to 0
+            if not array.get(pivLowSwept, i)
+                lvl = array.get(pivLowPrice, i)
+                if htfLow < lvl and htfClose > lvl
+                    array.set(pivLowSwept, i, true)
+                    lastSweepDir := 1
+                    lastSweepBarIdx := htfBarCounter
+                    newSweepFlag := true
+                    newSweepDirFlag := 1
+    if array.size(pivHighPrice) > 0
+        for i = array.size(pivHighPrice) - 1 to 0
+            if not array.get(pivHighSwept, i)
+                lvl = array.get(pivHighPrice, i)
+                if htfHigh > lvl and htfClose < lvl
+                    array.set(pivHighSwept, i, true)
+                    lastSweepDir := -1
+                    lastSweepBarIdx := htfBarCounter
+                    newSweepFlag := true
+                    newSweepDirFlag := -1
+
+    // --- 2) Enregistre les nouveaux pivots confirmés sur cette bougie ---
+    if not na(htfPivLow)
+        array.push(pivLowPrice, htfPivLow)
+        array.push(pivLowSwept, false)
+    if not na(htfPivHigh)
+        array.push(pivHighPrice, htfPivHigh)
+        array.push(pivHighSwept, false)
+
+    // --- 3) Mitigation des order blocks existants (avant d'en ajouter un nouveau) ---
+    if array.size(obTop) > 0
+        for k = 0 to array.size(obTop) - 1
+            if not array.get(obMitigated, k)
+                t = array.get(obTop, k)
+                b = array.get(obBottom, k)
+                if htfLow <= t and htfHigh >= b
+                    array.set(obMitigated, k, true)
+
+    // --- 4) Historique HTF + détection d'un nouvel order block ---
+    array.push(htfOArr, htfOpen)
+    array.push(htfHArr, htfHigh)
+    array.push(htfLArr, htfLow)
+    array.push(htfCArr, htfClose)
+    n = array.size(htfCArr)
+
+    if n > obAtrPeriod and not na(htfAtr) and htfAtr > 0
+        move = htfClose - htfOpen
+        if math.abs(move) >= obAtrMult * htfAtr
+            impulsiveBullish = move > 0
+            if n >= 2
+                for j = n - 2 to 0
+                    jo = array.get(htfOArr, j)
+                    jc = array.get(htfCArr, j)
+                    isBearishCandle = jc < jo
+                    isBullishCandle = jc > jo
+                    matched = (impulsiveBullish and isBearishCandle) or ((not impulsiveBullish) and isBullishCandle)
+                    if matched
+                        obT = array.get(htfHArr, j)
+                        obB = array.get(htfLArr, j)
+                        array.push(obTop, obT)
+                        array.push(obBottom, obB)
+                        array.push(obDir, impulsiveBullish ? 1 : -1)
+                        array.push(obAvailableAt, htfBarCounter)
+                        array.push(obExpireAt, htfBarCounter + maxObAgeBars)
+                        array.push(obMitigated, false)
+                        dirColor = impulsiveBullish ? color.new(color.teal, 0) : color.new(color.maroon, 0)
+                        newBox = box.new(left=bar_index, top=obT, bottom=obB, right=bar_index, border_color=dirColor, bgcolor=color.new(dirColor, 85), extend=extend.none)
+                        array.push(obBoxRef, newBox)
+                        break
+
+// ============================== FVG (chaque bougie LTF) ======================
+if array.size(fvgTop) > 0
+    for k = 0 to array.size(fvgTop) - 1
+        if not array.get(fvgMitigated, k)
+            t = array.get(fvgTop, k)
+            b = array.get(fvgBottom, k)
+            if low <= t and high >= b
+                array.set(fvgMitigated, k, true)
+
+bullishGap = low > high[2]
+bearishGap = high < low[2]
+
+if bullishGap
+    fT = low
+    fB = high[2]
+    array.push(fvgTop, fT)
+    array.push(fvgBottom, fB)
+    array.push(fvgDir, 1)
+    array.push(fvgAvailableAt, bar_index)
+    array.push(fvgExpireAt, bar_index + maxFvgAgeBars)
+    array.push(fvgMitigated, false)
+    fBox = box.new(left=bar_index-2, top=fT, bottom=fB, right=bar_index, border_color=color.new(color.blue, 0), bgcolor=color.new(color.blue, 88), extend=extend.none)
+    array.push(fvgBoxRef, fBox)
+
+if bearishGap
+    fT2 = low[2]
+    fB2 = high
+    array.push(fvgTop, fT2)
+    array.push(fvgBottom, fB2)
+    array.push(fvgDir, -1)
+    array.push(fvgAvailableAt, bar_index)
+    array.push(fvgExpireAt, bar_index + maxFvgAgeBars)
+    array.push(fvgMitigated, false)
+    fBox2 = box.new(left=bar_index-2, top=fT2, bottom=fB2, right=bar_index, border_color=color.new(color.orange, 0), bgcolor=color.new(color.orange, 88), extend=extend.none)
+    array.push(fvgBoxRef, fBox2)
+
+// ============================== ÉTENSION VISUELLE DES ZONES ACTIVES ==========
+if showZones
+    if array.size(obBoxRef) > 0
+        for k = 0 to array.size(obBoxRef) - 1
+            if not array.get(obMitigated, k)
+                box.set_right(array.get(obBoxRef, k), bar_index)
+    if array.size(fvgBoxRef) > 0
+        for k = 0 to array.size(fvgBoxRef) - 1
+            if not array.get(fvgMitigated, k)
+                box.set_right(array.get(fvgBoxRef, k), bar_index)
+
+// ============================== HELPERS DE CONFLUENCE =========================
+priceInActiveOB(dirWanted, price) =>
+    result = false
+    if array.size(obTop) > 0
+        for k = 0 to array.size(obTop) - 1
+            if array.get(obDir, k) == dirWanted and not array.get(obMitigated, k) and htfBarCounter >= array.get(obAvailableAt, k) and htfBarCounter <= array.get(obExpireAt, k)
+                t = array.get(obTop, k)
+                b = array.get(obBottom, k)
+                if price >= b and price <= t
+                    result := true
+    result
+
+priceInActiveFVG(dirWanted, price) =>
+    result = false
+    if array.size(fvgTop) > 0
+        for k = 0 to array.size(fvgTop) - 1
+            if array.get(fvgDir, k) == dirWanted and not array.get(fvgMitigated, k) and bar_index >= array.get(fvgAvailableAt, k) and bar_index <= array.get(fvgExpireAt, k)
+                t = array.get(fvgTop, k)
+                b = array.get(fvgBottom, k)
+                if price >= b and price <= t
+                    result := true
+    result
+
+// ============================== SCORE DE CONFLUENCE (chaque bougie LTF) ======
+sweepActive = not na(lastSweepDir) and not na(lastSweepBarIdx) and (htfBarCounter - lastSweepBarIdx) <= maxBarsSinceSweep
+dirWanted = sweepActive ? lastSweepDir : na
+
+priceOB = requireOB and sweepActive and not na(dirWanted) ? priceInActiveOB(dirWanted, close) : false
+priceFVG = useFvg and sweepActive and not na(dirWanted) ? priceInActiveFVG(dirWanted, close) : false
+nearAvwap = useFairValue and not na(avwapValue) and not na(ltfAtr) ? math.abs(close - avwapValue) <= proximityAtrMult * ltfAtr : false
+confirmOk = useConfirmation and sweepActive and not na(dirWanted) ? (dirWanted == 1 ? close > open : close < open) : false
+
+score = 0
+score := score + (requireSweep and sweepActive ? 1 : 0)
+score := score + (requireOB and priceOB ? 1 : 0)
+score := score + (useFvg and priceFVG ? 1 : 0)
+score := score + (useFairValue and nearAvwap ? 1 : 0)
+score := score + (useConfirmation and confirmOk ? 1 : 0)
+
+signalFired = sweepActive and score >= minScore and barstate.isconfirmed
+
+// ============================== AFFICHAGE ======================================
+plot(showAvwap ? avwapValue : na, title="AVWAP (proxy POC)", color=color.new(color.purple, 0), linewidth=1)
+
+plotshape(showZones and newSweepFlag and newSweepDirFlag == 1, style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.tiny, title="Bullish Sweep")
+plotshape(showZones and newSweepFlag and newSweepDirFlag == -1, style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny, title="Bearish Sweep")
+
+if signalFired and dirWanted == 1
+    label.new(bar_index, low, "LONG " + str.tostring(score) + "/" + str.tostring(minScore), style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
+if signalFired and dirWanted == -1
+    label.new(bar_index, high, "SHORT " + str.tostring(score) + "/" + str.tostring(minScore), style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
