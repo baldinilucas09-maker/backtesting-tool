@@ -1,13 +1,22 @@
 //@version=6
 // Conseiller d'entrée SMC/ICT — port Pine Script de la logique de confluence
 // backtestée en Python (mgc_backtest.strategy.confluence) : liquidity sweep
-// HTF + order block HTF + Fair Value Gap + proximité AVWAP.
+// HTF, order block HTF, Fair Value Gap, volume profile HTF (POC) et AVWAP
+// ancré sur le dernier sweep HTF (pas un simple reset de session).
 //
 // AVERTISSEMENT : ceci est un outil de VISUALISATION/AIDE À LA DÉCISION, pas
-// un signal de trading autonome ni un conseil en investissement. Le POC
-// (Fixed Range Volume Profile) du backtest Python n'est pas reproduit ici
-// (trop coûteux à calculer en Pine sans outil de binning natif) : la
-// condition "proximité POC/AVWAP" est donc approximée par l'AVWAP seul.
+// un signal de trading autonome ni un conseil en investissement. Aucun edge
+// n'a été démontré à ce jour sur cette logique de confluence (voir le
+// backtest Python) — ce script sert à vérifier visuellement les détections,
+// pas à trader en autonome.
+//
+// Le POC est calculé par binning manuel sur une fenêtre glissante de
+// bougies HTF (Fixed Range Volume Profile), recalculé une fois par nouvelle
+// bougie HTF pour rester léger. C'est une approximation : le binning ne
+// distribue pas le volume intrabar sur le range [low, high] de chaque
+// bougie comme le fait le backtest Python (données intrabar non
+// disponibles côté Pine), il attribue tout le volume au bin du prix
+// typique (H+L+C)/3 de la bougie.
 //
 // Ce script n'a pas pu être testé dans un compilateur Pine réel dans cet
 // environnement — s'il y a une erreur de compilation au premier collage
@@ -36,9 +45,12 @@ grpFVG = "Fair Value Gap"
 useFvg = input.bool(true, "Utiliser le FVG", group=grpFVG)
 maxFvgAgeBars = input.int(30, "Âge max FVG (bougies du graphique)", minval=1, group=grpFVG)
 
-grpFair = "Zone de juste valeur"
-useFairValue = input.bool(true, "Utiliser l'AVWAP (proxy du POC, non reproduit)", group=grpFair)
+grpFair = "Zone de juste valeur (POC / AVWAP HTF)"
+useAvwap = input.bool(true, "Utiliser l'AVWAP (ancré sur le dernier sweep HTF)", group=grpFair)
+usePoc = input.bool(true, "Utiliser le POC (volume profile HTF)", group=grpFair)
 proximityAtrMult = input.float(0.5, "Tolérance proximité (x ATR)", minval=0.05, step=0.05, group=grpFair)
+pocWindowBars = input.int(48, "Fenêtre POC (bougies HTF)", minval=5, group=grpFair)
+pocBins = input.int(20, "Nombre de bins POC", minval=5, maxval=60, group=grpFair)
 
 grpConf = "Confirmation"
 useConfirmation = input.bool(false, "Exiger une bougie de confirmation (clôture dans le sens du trade)", group=grpConf)
@@ -50,12 +62,12 @@ minScore = input.int(4, "Score minimum pour signal", minval=1, maxval=5, group=g
 
 grpDisp = "Affichage"
 showZones = input.bool(true, "Afficher les zones OB/FVG", group=grpDisp)
-showAvwap = input.bool(true, "Afficher l'AVWAP", group=grpDisp)
+showAvwap = input.bool(true, "Afficher l'AVWAP et le POC", group=grpDisp)
 
 // ============================== HTF DATA =====================================
-[htfOpen, htfHigh, htfLow, htfClose, htfTime, htfPivHigh, htfPivLow] = request.security(
+[htfOpen, htfHigh, htfLow, htfClose, htfVolume, htfTime, htfPivHigh, htfPivLow] = request.security(
      syminfo.tickerid, htf,
-     [open, high, low, close, time, ta.pivothigh(swingLeft, swingRight), ta.pivotlow(swingLeft, swingRight)],
+     [open, high, low, close, volume, time, ta.pivothigh(swingLeft, swingRight), ta.pivotlow(swingLeft, swingRight)],
      lookahead = barmerge.lookahead_off)
 
 htfAtr = request.security(syminfo.tickerid, htf, ta.atr(obAtrPeriod), lookahead = barmerge.lookahead_off)
@@ -71,11 +83,14 @@ var array<bool>  pivLowSwept  = array.new<bool>()
 var array<float> pivHighPrice = array.new<float>()
 var array<bool>  pivHighSwept = array.new<bool>()
 
-// Bougies HTF récentes (pour la recherche d'order block)
+// Bougies HTF récentes (pour la recherche d'order block et le POC)
 var array<float> htfOArr = array.new<float>()
 var array<float> htfHArr = array.new<float>()
 var array<float> htfLArr = array.new<float>()
 var array<float> htfCArr = array.new<float>()
+var array<float> htfVArr = array.new<float>()
+
+var float currentPoc = na  // recalculé une fois par nouvelle bougie HTF
 
 // Order blocks : top/bottom/direction(1=bullish,-1=bearish)/disponible dès/expire/mitigé
 var array<float> obTop         = array.new<float>()
@@ -102,18 +117,13 @@ var int   lastSweepBarIdx = na
 newSweepFlag = false
 newSweepDirFlag = int(na)
 
-// ============================== AVWAP (session UTC, proxy du POC) ============
-utcDay = dayofmonth(time, "UTC")
-newSession = na(utcDay[1]) or utcDay != utcDay[1]
+// ============================== AVWAP (ancré sur le dernier sweep HTF) =======
+// Ré-ancré à chaque nouveau sweep (comme vwap.anchor="sweep" côté Python) :
+// la somme cumulée repart de zéro dès qu'un sweep est détecté.
 typicalPrice = (high + low + close) / 3.0
 var float cumPV = 0.0
 var float cumVol = 0.0
-if newSession
-    cumPV := 0.0
-    cumVol := 0.0
-cumPV := cumPV + typicalPrice * volume
-cumVol := cumVol + volume
-avwapValue = cumVol > 0 ? cumPV / cumVol : na
+var bool hasAnchor = false
 
 ltfAtr = ta.atr(14)
 
@@ -135,6 +145,9 @@ if isNewHtfBar
                     lastSweepBarIdx := htfBarCounter
                     newSweepFlag := true
                     newSweepDirFlag := 1
+                    cumPV := 0.0
+                    cumVol := 0.0
+                    hasAnchor := true
     if array.size(pivHighPrice) > 0
         for i = array.size(pivHighPrice) - 1 to 0
             if not array.get(pivHighSwept, i)
@@ -145,6 +158,9 @@ if isNewHtfBar
                     lastSweepBarIdx := htfBarCounter
                     newSweepFlag := true
                     newSweepDirFlag := -1
+                    cumPV := 0.0
+                    cumVol := 0.0
+                    hasAnchor := true
 
     // --- 2) Enregistre les nouveaux pivots confirmés sur cette bougie ---
     if not na(htfPivLow)
@@ -168,7 +184,35 @@ if isNewHtfBar
     array.push(htfHArr, htfHigh)
     array.push(htfLArr, htfLow)
     array.push(htfCArr, htfClose)
+    array.push(htfVArr, htfVolume)
     n = array.size(htfCArr)
+
+    // --- 4bis) POC (volume profile HTF) sur la fenêtre glissante ---
+    if usePoc and n >= pocWindowBars
+        wStart = n - pocWindowBars
+        priceMin = array.get(htfLArr, wStart)
+        priceMax = array.get(htfHArr, wStart)
+        for widx = wStart + 1 to n - 1
+            wl = array.get(htfLArr, widx)
+            wh = array.get(htfHArr, widx)
+            priceMin := math.min(priceMin, wl)
+            priceMax := math.max(priceMax, wh)
+        if priceMax > priceMin
+            binWidth = (priceMax - priceMin) / pocBins
+            var array<float> binVol = array.new<float>(pocBins, 0.0)
+            array.fill(binVol, 0.0)
+            for widx = wStart to n - 1
+                wtp = (array.get(htfHArr, widx) + array.get(htfLArr, widx) + array.get(htfCArr, widx)) / 3.0
+                bIdx = int(math.min(math.max(math.floor((wtp - priceMin) / binWidth), 0), pocBins - 1))
+                array.set(binVol, bIdx, array.get(binVol, bIdx) + array.get(htfVArr, widx))
+            bestBin = 0
+            bestVol = array.get(binVol, 0)
+            for bIdx2 = 1 to pocBins - 1
+                bv = array.get(binVol, bIdx2)
+                if bv > bestVol
+                    bestVol := bv
+                    bestBin := bIdx2
+            currentPoc := priceMin + (bestBin + 0.5) * binWidth
 
     if n > obAtrPeriod and not na(htfAtr) and htfAtr > 0
         move = htfClose - htfOpen
@@ -194,6 +238,14 @@ if isNewHtfBar
                         newBox = box.new(left=bar_index, top=obT, bottom=obB, right=bar_index, border_color=dirColor, bgcolor=color.new(dirColor, 85), extend=extend.none)
                         array.push(obBoxRef, newBox)
                         break
+
+// ============================== AVWAP : accumulation (chaque bougie LTF) =====
+// L'ancre (reset à cumPV=0/cumVol=0) est déclenchée plus haut, au moment de
+// la détection d'un sweep. Ici on cumule juste la bougie courante.
+if hasAnchor
+    cumPV := cumPV + typicalPrice * volume
+    cumVol := cumVol + volume
+avwapValue = hasAnchor and cumVol > 0 ? cumPV / cumVol : na
 
 // ============================== FVG (chaque bougie LTF) ======================
 if array.size(fvgTop) > 0
@@ -271,20 +323,23 @@ dirWanted = sweepActive ? lastSweepDir : na
 
 priceOB = requireOB and sweepActive and not na(dirWanted) ? priceInActiveOB(dirWanted, close) : false
 priceFVG = useFvg and sweepActive and not na(dirWanted) ? priceInActiveFVG(dirWanted, close) : false
-nearAvwap = useFairValue and not na(avwapValue) and not na(ltfAtr) ? math.abs(close - avwapValue) <= proximityAtrMult * ltfAtr : false
+nearAvwap = useAvwap and not na(avwapValue) and not na(ltfAtr) ? math.abs(close - avwapValue) <= proximityAtrMult * ltfAtr : false
+nearPoc = usePoc and not na(currentPoc) and not na(ltfAtr) ? math.abs(close - currentPoc) <= proximityAtrMult * ltfAtr : false
+nearFairValue = nearAvwap or nearPoc
 confirmOk = useConfirmation and sweepActive and not na(dirWanted) ? (dirWanted == 1 ? close > open : close < open) : false
 
 score = 0
 score := score + (requireSweep and sweepActive ? 1 : 0)
 score := score + (requireOB and priceOB ? 1 : 0)
 score := score + (useFvg and priceFVG ? 1 : 0)
-score := score + (useFairValue and nearAvwap ? 1 : 0)
+score := score + ((useAvwap or usePoc) and nearFairValue ? 1 : 0)
 score := score + (useConfirmation and confirmOk ? 1 : 0)
 
 signalFired = sweepActive and score >= minScore and barstate.isconfirmed
 
 // ============================== AFFICHAGE ======================================
-plot(showAvwap ? avwapValue : na, title="AVWAP (proxy POC)", color=color.new(color.purple, 0), linewidth=1)
+plot(showAvwap and useAvwap ? avwapValue : na, title="AVWAP (ancré sweep)", color=color.new(color.purple, 0), linewidth=1)
+plot(showAvwap and usePoc ? currentPoc : na, title="POC (volume profile HTF)", color=color.new(color.yellow, 0), linewidth=1, style=plot.style_circles)
 
 plotshape(showZones and newSweepFlag and newSweepDirFlag == 1, style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.tiny, title="Bullish Sweep")
 plotshape(showZones and newSweepFlag and newSweepDirFlag == -1, style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny, title="Bearish Sweep")

@@ -174,19 +174,22 @@ vérification manuelle avant exécution.
 ## Indicateur TradingView (Pine Script)
 
 `pine/smc_ict_entry_advisor.pine` porte la même logique de confluence
-directement sur un graphique TradingView : sweep, order block, FVG et
-proximité AVWAP, avec des labels LONG/SHORT quand le score de confluence
-est atteint. Utile pour une vérification visuelle rapide, ou pour qu'un
-trader expérimenté confirme si les zones détectées correspondent à sa
-lecture du graphique.
+directement sur un graphique TradingView : liquidity sweep HTF, order block
+HTF, FVG, **volume profile HTF (POC)** et **AVWAP ancré sur le dernier sweep
+HTF** (pas un simple reset de session), avec des labels LONG/SHORT quand le
+score de confluence est atteint. Utile pour une vérification visuelle
+rapide, ou pour qu'un trader expérimenté confirme si les zones détectées
+correspondent à sa lecture du graphique.
 
 **Installation** : TradingView → Pine Editor (en bas de l'écran) → coller
 le contenu du fichier → "Add to chart".
 
 **Limites à connaître** :
-- Le **POC** (Fixed Range Volume Profile) du backtest Python n'est pas
-  reproduit — trop coûteux à calculer proprement en Pine. La condition
-  "proximité POC/AVWAP" est donc approximée par l'**AVWAP seul**.
+- Le **POC** est calculé par binning manuel sur une fenêtre glissante de
+  bougies HTF (paramétrable). Approximation par rapport au Python : chaque
+  bougie contribue tout son volume au bin de son prix typique (H+L+C)/3,
+  sans distribuer le volume sur son range [low, high] comme le fait le
+  backtest (données intrabar non disponibles côté Pine).
 - Ce script n'a pas pu être testé dans un compilateur Pine réel dans cet
   environnement (aucun accès à TradingView). S'il y a une erreur de
   compilation au premier collage dans l'éditeur Pine, copiez le message
