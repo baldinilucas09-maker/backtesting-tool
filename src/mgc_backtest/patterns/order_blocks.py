@@ -15,6 +15,7 @@ jusqu'à t.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from mgc_backtest.utils.indicators import atr
@@ -102,9 +103,25 @@ def detect_order_blocks(
 
 def active_order_blocks(order_blocks: pd.DataFrame, as_of, direction: str | None = None) -> pd.DataFrame:
     """OB exploitables à l'instant ``as_of`` : déjà disponibles, non mitigés
-    (ou mitigés après ``as_of``), et non expirés."""
-    mask = (order_blocks["available_at"] <= as_of) & (order_blocks["expires_at"] >= as_of)
-    mask &= order_blocks["mitigated_at"].isna() | (order_blocks["mitigated_at"] > as_of)
+    (ou mitigés après ``as_of``), et non expirés.
+
+    Implémenté avec des tableaux numpy plutôt que des comparaisons pandas
+    Series : cette fonction est appelée une fois par bougie LTF pendant le
+    backtest (potentiellement des dizaines de milliers de fois), et le
+    surcoût fixe par appel de pandas devient alors le goulot d'étranglement
+    dominant malgré la petite taille des données."""
+    if order_blocks.empty:
+        return order_blocks
+    as_of_ts = pd.Timestamp(as_of)
+    if as_of_ts.tzinfo is not None:
+        as_of_ts = as_of_ts.tz_convert("UTC").tz_localize(None)
+    as_of_np = np.datetime64(as_of_ts)
+    available_at = order_blocks["available_at"].to_numpy(dtype="datetime64[ns]")
+    expires_at = order_blocks["expires_at"].to_numpy(dtype="datetime64[ns]")
+    mitigated_at = order_blocks["mitigated_at"].to_numpy(dtype="datetime64[ns]")
+
+    mask = (available_at <= as_of_np) & (expires_at >= as_of_np)
+    mask &= pd.isna(mitigated_at) | (mitigated_at > as_of_np)
     if direction is not None:
-        mask &= order_blocks["direction"] == direction
-    return order_blocks[mask]
+        mask &= order_blocks["direction"].to_numpy() == direction
+    return order_blocks.iloc[mask]
