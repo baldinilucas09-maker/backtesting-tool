@@ -1,0 +1,84 @@
+# Candidat issu de scripts/parameter_search.py (voir output_param_search/log.txt) :
+# le meilleur des 3 finalistes validés en walk-forward sur 19 mois de
+# données réelles (mars 2024 - juillet 2026, fragmenté).
+#
+# Walk-forward OOS : 130 trades, win rate 37.7%, profit factor net 1.46,
+# PnL net +3410$, drawdown -5.71%, 22/34 fenêtres profitables.
+#
+# ATTENTION - à lire avant de considérer ceci comme "l'edge trouvé" :
+# 1. Présélectionné sur les 90 derniers jours de données (recherche en 2
+#    temps pour rester dans un temps de calcul raisonnable), qui font
+#    aussi partie de la fenêtre walk-forward complète -> pas un jeu de
+#    test totalement indépendant de la sélection (biais de sélection).
+# 2. 36 combinaisons ont été testées ; avec autant d'essais, retrouver 2-3
+#    combinaisons "correctes" par pur hasard est plausible (problème des
+#    comparaisons multiples), même sans edge réel sous-jacent.
+# 3. Avant toute confiance réelle : valider sur des données JAMAIS vues
+#    pendant cette recherche (nouveaux mois futurs), et faire confirmer par
+#    un trader expérimenté que ces réglages (impulsion ATR faible, swings
+#    "importants" 4/4, objectif unique 3R) correspondent à une lecture de
+#    marché sensée, pas juste à un ajustement numérique.
+#
+# Usage : python scripts/run_backtest.py --config config/strategy_btc_perp_candidate_a.yaml
+
+timeframes:
+  ltf: "5min"
+  htf: "4h"
+
+data:
+  raw_file: "data/raw/BTCUSDT_5min_real.csv"
+  timezone: "UTC"
+
+swings:
+  left_bars: 4
+  right_bars: 4
+
+liquidity_sweeps:
+  lookback_swings: 20
+  max_bars_since_sweep: 12
+
+order_blocks:
+  impulse_atr_mult: 1.0
+  atr_period: 14
+  max_ob_age_bars: 40
+
+fair_value_gaps:
+  min_gap_atr_mult: 0.0
+  max_fvg_age_bars: 30
+
+volume_profile:
+  window_bars: 48
+  n_bins: 30
+
+vwap:
+  anchor: "session"
+  session_start_utc: "00:00"
+
+confluence:
+  proximity_atr_mult: 0.3
+  min_score: 3
+  required:
+    sweep: true
+    order_block: true
+    fvg: true
+    poc_or_avwap: true
+
+risk:
+  initial_capital: 10000
+  risk_per_trade_pct: 1.0
+  stop_buffer_ticks: 2
+  tick_size: 0.1
+  tick_value: 0.1
+  r_multiples: [3]          # <-- objectif unique RR=3 (pas de scale-out)
+  scale_out_fractions: [1.0]
+  max_concurrent_trades: 1
+  commission_per_contract: 0.0
+  commission_pct: 0.05
+  slippage_ticks: 2.0
+  qty_step: 0.001
+  max_leverage: 5.0
+
+session_filter:
+  enabled: false
+  start_utc: "12:00"
+  end_utc: "20:00"
