@@ -196,8 +196,8 @@ le contenu du fichier → "Add to chart".
   d'erreur exact et renvoyez-le pour correction immédiate.
 - C'est un outil de **visualisation/aide à la décision**, pas un signal de
   trading autonome — les mêmes réserves que pour le conseiller d'entrée
-  Python s'appliquent (aucun edge démontré à ce jour, voir Avertissement
-  plus bas).
+  Python s'appliquent (edge candidat mais non confirmé à ce jour, voir
+  "Recherche de paramètres" et "Avertissement" plus bas).
 
 ## Coûts réalistes (slippage + commissions)
 
@@ -248,6 +248,60 @@ l'échantillon de trades est trop faible pour conclure statistiquement.
 > aucun edge stable à trouver) et démontre que l'outil détecte bien
 > l'absence de robustesse plutôt que de la masquer.
 
+## Recherche de paramètres (recherche d'edge)
+
+`scripts/parameter_search.py` automatise la recherche systématique d'un jeu
+de paramètres qui tient en walk-forward, plutôt que d'ajuster les seuils à la
+main. Fonctionnement en 2 étapes pour rester dans un temps de calcul
+raisonnable :
+
+1. **Présélection** : toutes les combinaisons d'une grille (seuil
+   d'impulsion ATR des order blocks, tolérance de proximité de confluence,
+   longueur des swings, mode de take-profit) sont testées avec un backtest
+   simple sur une sous-période récente (`--screen-last-days`), et filtrées
+   par nombre de trades minimum / profit factor minimum.
+2. **Validation** : les meilleurs candidats de l'étape 1 sont ensuite testés
+   en walk-forward complet (`validation/walk_forward.py`) sur tout
+   l'historique disponible, ce qui donne la métrique qui compte vraiment :
+   le profit factor **out-of-sample**.
+
+```bash
+python scripts/parameter_search.py --config config/strategy_btc_perp_relaxed_real.yaml \
+    --screen-last-days 90 --top-n 3
+```
+
+Sur les 19 mois de données BTC réelles disponibles (mars 2024 - juillet
+2026, fragmentés), cette recherche (36 combinaisons testées) a fait
+émerger deux configurations dont le profit factor walk-forward
+out-of-sample dépasse 1.3 avec un échantillon de plus de 100 trades :
+
+| Config | Trades OOS | Win rate | PF net OOS | PnL net OOS | Max DD | Fenêtres profitables |
+|---|---|---|---|---|---|---|
+| `config/strategy_btc_perp_candidate_a.yaml` | 130 | 37.7% | **1.46** | +3410 $ | -5.71% | 22/34 |
+| `config/strategy_btc_perp_candidate_b.yaml` | 124 | 37.1% | **1.33** | +2341 $ | -5.97% | 20/34 |
+
+Les deux utilisent un objectif unique à RR=3 (pas de scale-out), des swings
+"importants" (4 bougies de chaque côté) et un seuil d'impulsion ATR bas
+(1.0x) pour les order blocks — cohérent avec la lecture "grands niveaux,
+peu de trades, RR élevé" plutôt qu'un scalping à haute fréquence.
+
+**Ces deux résultats sont prometteurs mais ne constituent pas une preuve
+d'edge.** Deux biais methodologiques concrets s'appliquent :
+
+- **Biais de sélection** : la présélection (étape 1) porte sur les 90
+  derniers jours de l'historique, qui font aussi partie de la fenêtre
+  walk-forward complète (étape 2) — le jeu de test n'est donc pas
+  totalement indépendant de la sélection.
+- **Comparaisons multiples** : 36 combinaisons ont été testées ; avec un
+  tel nombre d'essais, retrouver 2-3 combinaisons "correctes" par pur
+  hasard reste plausible même sans edge réel sous-jacent.
+
+Avant d'y accorder une réelle confiance : valider sur des données futures
+jamais vues pendant cette recherche, et faire confirmer par un trader
+expérimenté (les réglages numériques ci-dessus correspondent-ils à une
+lecture de marché sensée, ou juste à un ajustement statistique ?). Voir les
+commentaires en tête de chaque fichier `candidate_*.yaml` pour le détail.
+
 ## Structure du projet
 
 ```
@@ -270,11 +324,30 @@ pytest
 ## Avertissement
 
 Ce projet est un outil de recherche/backtesting. Il ne constitue pas un
-conseil en investissement. **Tout ce qu'il a produit jusqu'ici tourne sur
-des données synthétiques (marche aléatoire)** — aucune conclusion sur une
-quelconque rentabilité ne peut en être tirée. Les coûts réalistes
-(slippage, commissions) et la validation walk-forward sont implémentés,
-mais la pièce manquante reste un historique de **vraies données de marché**
-(le loader CSV est prêt à les recevoir, voir `data/loader.py`). Sans ça,
-tout backtest ou conseil produit par cet outil n'a qu'une valeur
-démonstrative du pipeline, pas prédictive.
+conseil en investissement.
+
+Sur 19 mois de données réelles BTC (Binance, mars 2024 - juillet 2026,
+fragmentés), une recherche systématique de paramètres (voir "Recherche de
+paramètres" ci-dessus) a fait émerger deux configurations dont le profit
+factor **out-of-sample** (walk-forward) dépasse 1.3 sur un échantillon de
+120+ trades — c'est la première fois, après de nombreux tests précédents
+(MGC synthétique, BTC synthétique, BTC réel à 4/9/14 mois) systématiquement
+négatifs ou neutres, qu'un résultat de cette ampleur apparaît. C'est un
+signal encourageant, **pas une preuve d'edge confirmée** :
+
+- La présélection des candidats a partiellement chevauché la fenêtre de
+  test walk-forward (biais de sélection).
+- 36 combinaisons ont été testées, ce qui augmente la probabilité de tomber
+  sur un résultat positif par hasard (comparaisons multiples).
+- Aucune validation n'a encore été faite sur des données strictement
+  postérieures à cette recherche, ni de relecture par un trader expérimenté
+  pour confirmer que la logique (grands niveaux, RR=3, faible risque) est
+  cohérente avec une lecture de marché réelle et pas seulement un
+  ajustement statistique.
+
+Les coûts réalistes (slippage, commissions) et la validation walk-forward
+sont implémentés et utilisés tout au long de cette recherche pour limiter
+le surapprentissage, mais tant que les points ci-dessus ne sont pas
+adressés, considérez ces deux configurations comme des **candidats à
+tester en conditions réelles (paper trading) avant tout usage avec du
+capital réel** — pas comme une stratégie validée.
