@@ -58,6 +58,7 @@ risk:
   commission_pct: 0.05           # taker fee Binance USDT-M ~0.05% du notionnel, par exécution
   slippage_ticks: 2.0            # pas de carnet d'ordres réel modélisé -> un peu plus conservateur que MGC
   qty_step: 0.001                # quantité minimale Binance BTCUSDT perp (0.001 BTC)
+  max_leverage: 5.0               # plafond notionnel = 5x le capital (garde-fou, ajustez selon votre tolérance au risque)
 
 session_filter:
   enabled: false

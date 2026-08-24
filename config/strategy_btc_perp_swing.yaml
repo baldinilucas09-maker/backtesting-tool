@@ -1,0 +1,81 @@
+# Variante "swing" de config/strategy_btc_perp.yaml, calquée sur la
+# description donnée : exécution 4h, contexte structure sur le daily
+# (le weekly/monthly pour les "gros niveaux" n'est pas encore modélisé —
+# l'architecture actuelle ne gère que 2 timeframes, exécution + contexte ;
+# à étendre si le daily seul ne suffit pas).
+#
+# Différences vs la version intraday :
+# - FVG désactivé (jugé inutile pour ce style de trading)
+# - "confirmation" activée : approximation simple (la bougie d'entrée doit
+#   clôturer dans le sens du trade) — à affiner une fois la vraie définition
+#   connue (bougie de rejet ? mini-BOS ? autre ?)
+# - R:R plus généreux (r_multiples) et take-profits moins nombreux, cohérent
+#   avec "gros RR, peu de risque"
+#
+# Nécessite data/raw/BTCUSDT_4h_real.csv (généré par resampling du CSV
+# 5min réel : voir README).
+#
+# Usage : python scripts/run_backtest.py --config config/strategy_btc_perp_swing.yaml
+
+timeframes:
+  ltf: "4h"
+  htf: "1D"
+
+data:
+  raw_file: "data/raw/BTCUSDT_4h_real.csv"
+  timezone: "UTC"
+
+swings:
+  left_bars: 2
+  right_bars: 2
+
+liquidity_sweeps:
+  lookback_swings: 20
+  max_bars_since_sweep: 20   # ~20 jours de patience avant qu'un sweep soit considéré caduc
+
+order_blocks:
+  impulse_atr_mult: 1.5
+  atr_period: 14
+  max_ob_age_bars: 30        # ~30 jours
+
+fair_value_gaps:
+  min_gap_atr_mult: 0.0
+  max_fvg_age_bars: 30
+
+volume_profile:
+  window_bars: 30            # ~30 jours de fenêtre glissante pour le POC
+  n_bins: 30
+
+vwap:
+  anchor: "session"
+  session_start_utc: "00:00"
+
+confluence:
+  proximity_atr_mult: 0.5
+  min_score: 4                # sweep + order_block + poc_or_avwap + confirmation (fvg désactivé)
+  required:
+    sweep: true
+    order_block: true
+    fvg: false                 # <-- désactivé
+    poc_or_avwap: true
+    confirmation: true         # <-- activé (approximation, voir note ci-dessus)
+
+risk:
+  initial_capital: 10000
+  risk_per_trade_pct: 1.0
+  stop_buffer_ticks: 2
+  tick_size: 0.1
+  tick_value: 0.1
+  r_multiples: [2, 4, 6]              # RR plus généreux (swing)
+  scale_out_fractions: [0.34, 0.33, 0.33]
+  max_concurrent_trades: 1
+  commission_per_contract: 0.0
+  commission_pct: 0.05
+  slippage_ticks: 2.0
+  qty_step: 0.001
+  max_leverage: 5.0
+
+session_filter:
+  enabled: false
+  start_utc: "12:00"
+  end_utc: "20:00"

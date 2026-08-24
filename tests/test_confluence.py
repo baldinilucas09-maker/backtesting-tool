@@ -64,3 +64,32 @@ def test_disabled_condition_is_excluded_from_scoring():
     # fvg désactivé -> 3 conditions évaluées, toutes vraies
     assert check.score == 3
     assert "fvg" not in check.checks
+
+
+def test_confirmation_disabled_by_default():
+    cfg = ConfluenceConfig(min_score=1, required={"sweep": True})
+    check = evaluate_confluence(
+        price=100.0, atr_ltf=1.0, has_recent_sweep=True,
+        active_obs=_empty_zone_df(), active_fvgs=_empty_zone_df(), poc=None, vwap=None, cfg=cfg,
+    )
+    assert "confirmation" not in check.checks
+
+
+def test_confirmation_requires_candle_closing_in_trade_direction():
+    cfg = ConfluenceConfig(
+        min_score=1,
+        required={"sweep": False, "order_block": False, "fvg": False, "poc_or_avwap": False, "confirmation": True},
+    )
+    bullish = evaluate_confluence(
+        price=101.0, atr_ltf=1.0, has_recent_sweep=False,
+        active_obs=_empty_zone_df(), active_fvgs=_empty_zone_df(), poc=None, vwap=None, cfg=cfg,
+        direction="long", bar_open=100.0, bar_close=101.0,
+    )
+    assert bullish.checks["confirmation"] is True
+
+    against_trend = evaluate_confluence(
+        price=99.0, atr_ltf=1.0, has_recent_sweep=False,
+        active_obs=_empty_zone_df(), active_fvgs=_empty_zone_df(), poc=None, vwap=None, cfg=cfg,
+        direction="long", bar_open=100.0, bar_close=99.0,
+    )
+    assert against_trend.checks["confirmation"] is False

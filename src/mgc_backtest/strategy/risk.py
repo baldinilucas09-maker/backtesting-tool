@@ -61,12 +61,24 @@ def position_size(capital: float, entry: float, stop: float, cfg: RiskConfig) ->
     """Taille de position (contrats entiers pour un future, quantité
     fractionnaire pour un perpetual crypto via ``qty_step``) telle que la
     perte au stop loss ne dépasse pas ``risk_per_trade_pct`` du capital
-    courant, arrondie à la baisse au multiple de ``qty_step`` le plus proche."""
+    courant, arrondie à la baisse au multiple de ``qty_step`` le plus proche.
+
+    Quand le stop calculé est anormalement proche du prix d'entrée (sweep/OB
+    très serré), la formule "risque fixe" implique une taille de position
+    énorme (donc un levier énorme) pour respecter ce risque en $ : sans
+    plafond, ce serait irréaliste (aucun exchange n'offre un levier
+    illimité) et dangereux. ``max_leverage`` (0 = pas de plafond) borne le
+    notionnel de la position à ``max_leverage x capital``."""
     risk_amount = capital * cfg.risk_per_trade_pct / 100.0
     risk_ticks = abs(entry - stop) / cfg.tick_size
     risk_per_unit = risk_ticks * cfg.tick_value
     if risk_per_unit <= 0:
         return 0.0
     raw_size = risk_amount / risk_per_unit
+
+    if cfg.max_leverage > 0 and entry > 0:
+        max_size_by_leverage = (cfg.max_leverage * capital) / entry
+        raw_size = min(raw_size, max_size_by_leverage)
+
     steps = math.floor(raw_size / cfg.qty_step + 1e-9)
     return max(steps, 0) * cfg.qty_step

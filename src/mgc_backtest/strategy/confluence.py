@@ -31,10 +31,19 @@ def evaluate_confluence(
     poc: float | None,
     vwap: float | None,
     cfg: ConfluenceConfig,
+    direction: str | None = None,
+    bar_open: float | None = None,
+    bar_close: float | None = None,
 ) -> ConfluenceCheck:
-    """Évalue les 4 conditions de confluence pour un prix/instant donnés et
-    retourne le score (nb de conditions activées vérifiées) + les tags des
-    setups qui ont matché (utile pour les stats de reporting par setup)."""
+    """Évalue les conditions de confluence activées (``cfg.required``) pour
+    un prix/instant donnés et retourne le score (nb de conditions vraies) +
+    les tags des setups qui ont matché (utile pour les stats de reporting
+    par setup).
+
+    ``confirmation`` (désactivée par défaut) est une approximation simple :
+    la bougie d'entrée doit clôturer dans le sens du trade (bougie haussière
+    pour un long, baissière pour un short) — à affiner si ça ne correspond
+    pas à la définition réelle utilisée."""
     required = cfg.required
     checks: dict[str, bool] = {}
     tags: list[str] = []
@@ -66,6 +75,17 @@ def evaluate_confluence(
             tags.append("poc")
         if near_vwap:
             tags.append("avwap")
+
+    if required.get("confirmation", False):
+        ok = (
+            direction is not None
+            and bar_open is not None
+            and bar_close is not None
+            and ((bar_close > bar_open) if direction == "long" else (bar_close < bar_open))
+        )
+        checks["confirmation"] = ok
+        if ok:
+            tags.append("confirmation")
 
     score = sum(1 for v in checks.values() if v)
     return ConfluenceCheck(checks=checks, score=score, setup_tags=tags)

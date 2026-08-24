@@ -86,3 +86,18 @@ def test_fractional_position_size_respects_qty_step():
     # taille non-ronde : arrondie à la baisse au multiple de qty_step
     size2 = position_size(capital=10000, entry=50000.0, stop=49837.5, cfg=cfg)
     assert size2 == 0.615  # 100/162.5 = 0.6153... -> floor à 0.615
+
+
+def test_max_leverage_caps_position_size_on_tight_stop():
+    # stop anormalement proche de l'entrée -> sans plafond, la formule de
+    # risque fixe impliquerait un levier énorme (100/4.8 = ~20.8 BTC, soit
+    # ~137x de levier sur 10000$ à 65829.5$/BTC)
+    cfg_uncapped = RiskConfig(risk_per_trade_pct=1.0, tick_size=0.1, tick_value=0.1, qty_step=0.001, max_leverage=0.0)
+    size_uncapped = position_size(capital=10000, entry=65829.5, stop=65834.3, cfg=cfg_uncapped)
+    assert size_uncapped > 20  # confirme le comportement dangereux sans plafond
+
+    cfg_capped = RiskConfig(risk_per_trade_pct=1.0, tick_size=0.1, tick_value=0.1, qty_step=0.001, max_leverage=5.0)
+    size_capped = position_size(capital=10000, entry=65829.5, stop=65834.3, cfg=cfg_capped)
+    notional = size_capped * 65829.5
+    assert notional <= 5.0 * 10000 + 1e-6
+    assert size_capped == 0.759

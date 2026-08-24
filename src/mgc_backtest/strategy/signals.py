@@ -166,6 +166,9 @@ def evaluate_bar(df_ltf: pd.DataFrame, i: int, state: MarketState, config: Strat
             poc=poc_val,
             vwap=vwap_val,
             cfg=config.confluence,
+            direction=_DIR_MAP.get(pattern_direction),
+            bar_open=float(df_ltf["open"].iloc[i]),
+            bar_close=price,
         )
 
     return BarEvaluation(

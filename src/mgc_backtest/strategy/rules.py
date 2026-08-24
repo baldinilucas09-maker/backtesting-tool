@@ -62,7 +62,7 @@ class ConfluenceConfig:
     proximity_atr_mult: float = 0.5
     min_score: int = 4
     required: dict = field(default_factory=lambda: {
-        "sweep": True, "order_block": True, "fvg": True, "poc_or_avwap": True,
+        "sweep": True, "order_block": True, "fvg": True, "poc_or_avwap": True, "confirmation": False,
     })
 
 
@@ -80,6 +80,7 @@ class RiskConfig:
     commission_pct: float = 0.0            # % du notionnel (prix x taille), par exécution (marchés type crypto perp)
     slippage_ticks: float = 1.0            # ticks de slippage défavorable appliqués à chaque exécution
     qty_step: float = 1.0                  # granularité minimale de la taille de position (1.0 = contrats entiers)
+    max_leverage: float = 0.0              # plafond notionnel = max_leverage x capital (0 = pas de plafond)
 
 
 @dataclass

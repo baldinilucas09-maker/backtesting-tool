@@ -1,17 +1,17 @@
-# Variante "démo" de config/strategy_btc_perp.yaml : pointe sur le jeu de
-# données BTC synthétique (généré via scripts/generate_synthetic_data.py
-# --start-price 60000 --base-vol 0.0018 --include-weekends) et assouplit le
-# seuil de confluence (3/4 au lieu de 4/4) pour observer des trades sur ce
-# random-walk de démonstration, le temps qu'un historique BTC réel arrive.
+# Variante de config/strategy_btc_perp.yaml sur données réelles (Binance,
+# mars-avril + juin-juillet 2026) : seuil de confluence assoupli (3/4 au
+# lieu de 4/4) car l'alignement strict des 4 conditions ne s'est produit
+# aucune fois sur cet échantillon. À interpréter avec prudence : peu de
+# trades, résultat non concluant statistiquement (voir README).
 #
-# Usage : python scripts/run_backtest.py --config config/strategy_btc_perp_relaxed_demo.yaml
+# Usage : python scripts/run_backtest.py --config config/strategy_btc_perp_relaxed_real.yaml
 
 timeframes:
   ltf: "5min"
   htf: "4h"
 
 data:
-  raw_file: "data/raw/BTCUSDT_5min_synthetic.csv"
+  raw_file: "data/raw/BTCUSDT_5min_real.csv"
   timezone: "UTC"
 
 swings:
