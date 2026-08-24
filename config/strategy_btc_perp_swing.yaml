@@ -74,6 +74,7 @@ risk:
   slippage_ticks: 2.0
   qty_step: 0.001
   max_leverage: 5.0
+  breakeven_after_tp_index: 0    # "invalidation" : stop au breakeven dès le 1er palier de TP atteint
 
 session_filter:
   enabled: false

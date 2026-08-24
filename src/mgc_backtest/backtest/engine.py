@@ -102,6 +102,7 @@ def run_backtest(df_ltf: pd.DataFrame, df_htf: pd.DataFrame, config: StrategyCon
                 score=sig.score,
                 slippage_ticks=config.risk.slippage_ticks,
                 tick_size=config.risk.tick_size,
+                breakeven_after_tp_index=config.risk.breakeven_after_tp_index,
             )
             open_trades.append(trade)
             portfolio.apply_pnl(-_commission(config.risk, entry_price, size))

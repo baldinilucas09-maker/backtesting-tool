@@ -6,7 +6,12 @@ Hypothèses simplificatrices (pas de données intrabar tick-level) :
   défavorable) ;
 - chaque exécution (entrée et chaque sortie) subit un slippage défavorable
   fixe (``slippage_ticks``) : on obtient toujours un prix légèrement pire
-  que le niveau théorique visé, jamais meilleur.
+  que le niveau théorique visé, jamais meilleur ;
+- ``breakeven_after_tp_index`` (optionnel) : une fois ce palier de take
+  profit atteint, le stop est ramené au prix d'entrée pour le reste de la
+  position — protège contre un retournement après qu'un objectif de prix a
+  été atteint, plutôt que de risquer de rendre les gains jusqu'au stop
+  initial.
 """
 
 from __future__ import annotations
@@ -69,6 +74,7 @@ class Trade:
     score: int
     slippage_ticks: float = 0.0
     tick_size: float = 0.0
+    breakeven_after_tp_index: int | None = None
     planned_sizes: list = field(default_factory=list)
     remaining_size: int = field(init=False)
     exits: list = field(default_factory=list)
@@ -127,6 +133,12 @@ class Trade:
             self.exits.append(ExitFill(time, fill_price, exit_size, "take_profit", tp.r_multiple))
             self.remaining_size -= exit_size
             self.tp_hit_flags[i] = True
+
+            if self.breakeven_after_tp_index is not None and i == self.breakeven_after_tp_index:
+                # "invalidation" : une fois cet objectif atteint, on protège le
+                # trade contre un retournement en ramenant le stop au point
+                # d'équilibre plutôt que de risquer de rendre les gains
+                self.stop_loss = self.entry_price
 
         if self.remaining_size <= _SIZE_EPSILON:
             self.status = "closed"

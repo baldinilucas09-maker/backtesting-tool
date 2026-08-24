@@ -81,6 +81,7 @@ class RiskConfig:
     slippage_ticks: float = 1.0            # ticks de slippage défavorable appliqués à chaque exécution
     qty_step: float = 1.0                  # granularité minimale de la taille de position (1.0 = contrats entiers)
     max_leverage: float = 0.0              # plafond notionnel = max_leverage x capital (0 = pas de plafond)
+    breakeven_after_tp_index: int | None = None  # après ce palier de TP (index 0 = 1er), stop ramené au point d'équilibre
 
 
 @dataclass

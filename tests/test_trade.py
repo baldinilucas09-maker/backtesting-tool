@@ -156,3 +156,36 @@ def test_total_commission_charges_entry_and_each_exit():
     assert trade.net_pnl(tick_size=0.1, tick_value=1.0, commission_per_contract=0.5) == (
         trade.realized_pnl(tick_size=0.1, tick_value=1.0) - 4.0
     )
+
+
+def test_breakeven_after_tp_protects_against_reversal():
+    t = pd.Timestamp("2025-01-01", tz="UTC")
+    trade = Trade(
+        id=7,
+        direction="long",
+        entry_time=t,
+        entry_price=100.0,
+        size=2,
+        stop_loss=98.0,
+        take_profits=[
+            TakeProfitLevel(r_multiple=1, price=102.0, fraction=0.5),
+            TakeProfitLevel(r_multiple=2, price=104.0, fraction=0.5),
+        ],
+        setup_tags=[],
+        score=4,
+        breakeven_after_tp_index=0,  # stop au breakeven une fois TP1 atteint
+    )
+
+    # TP1 touché -> le stop doit être ramené à l'entrée (100.0)
+    trade.process_bar(t + pd.Timedelta(hours=1), high=102.5, low=101.0)
+    assert trade.stop_loss == 100.0
+    assert trade.status == "open"
+
+    # le prix retourne ensuite vers l'entrée au lieu de continuer vers TP2 -> sort au breakeven, pas au stop initial
+    trade.process_bar(t + pd.Timedelta(hours=2), high=101.0, low=99.0)
+
+    assert trade.status == "closed"
+    assert trade.exits[-1].reason == "stop_loss"
+    assert trade.exits[-1].price == 100.0  # sortie au breakeven, pas à 98.0
+    # PnL global légèrement positif (moitié gagnée à TP1, moitié à breakeven) plutôt qu'une perte complète
+    assert trade.realized_pnl(tick_size=0.1, tick_value=1.0) > 0
