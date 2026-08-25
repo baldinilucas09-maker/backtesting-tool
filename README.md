@@ -302,6 +302,36 @@ expérimenté (les réglages numériques ci-dessus correspondent-ils à une
 lecture de marché sensée, ou juste à un ajustement statistique ?). Voir les
 commentaires en tête de chaque fichier `candidate_*.yaml` pour le détail.
 
+## Paper trading (suivi en conditions réelles, sans argent)
+
+Cet environnement n'a pas d'accès réseau sortant vers un flux de marché en
+direct — impossible d'y faire tourner un bot connecté en continu. À la
+place, `scripts/paper_trading_journal.py` s'appuie sur le même workflow que
+pour la recherche de données : à chaque nouvel export récent ajouté au
+fichier de données (ex. un nouveau mois Binance dans `data/raw/`), relancez
+le script.
+
+Il rejoue tout l'historique avec le moteur de backtest existant
+(déterministe, sans look-ahead) et ne signale que ce qui est nouveau depuis
+le dernier passage : trades réellement clôturés (stop loss ou take profit
+touché) et position en cours à surveiller (stop/take profit).
+
+```bash
+python scripts/paper_trading_journal.py --config config/strategy_btc_perp_candidate_a.yaml
+```
+
+L'état (`paper_trading/state.json`) et l'historique des trades clôturés
+(`paper_trading/journal.jsonl`) sont **commités dans le dépôt** (contrairement
+à `output/`, régénéré et ignoré par git) car ils doivent survivre d'une
+session à l'autre dans cet environnement éphémère — pensez à commit/push
+après chaque passage.
+
+> Au 25/08/2026, le fichier de données s'arrête au 31/07/2026 : tant que des
+> données plus récentes n'ont pas été ajoutées, ce script ne fait que
+> rejouer l'historique déjà connu (rien de nouveau à signaler). Le suivi
+> devient utile dès que de nouvelles bougies réelles, jamais vues par la
+> recherche de paramètres, sont ajoutées.
+
 ## Structure du projet
 
 ```
