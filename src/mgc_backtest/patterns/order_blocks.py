@@ -98,7 +98,7 @@ def detect_order_blocks(
     )
     for col in ("time", "available_at", "mitigated_at", "expires_at"):
         out[col] = pd.to_datetime(out[col], utc=True)
-    return out.sort_values("time").reset_index(drop=True)
+    return out.sort_values("time", kind="stable").reset_index(drop=True)
 
 
 def active_order_blocks(order_blocks: pd.DataFrame, as_of, direction: str | None = None) -> pd.DataFrame:

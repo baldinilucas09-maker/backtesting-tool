@@ -40,7 +40,7 @@ def detect_swings(df: pd.DataFrame, left: int = 2, right: int = 2) -> pd.DataFra
             records.append((idx[i], l, "low", idx[i + right]))
 
     out = pd.DataFrame(records, columns=["time", "price", "type", "confirmed_at"])
-    return out.sort_values("time").reset_index(drop=True)
+    return out.sort_values("time", kind="stable").reset_index(drop=True)
 
 
 def swings_known_by(swings: pd.DataFrame, as_of, swing_type: str | None = None) -> pd.DataFrame:

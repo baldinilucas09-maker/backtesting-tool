@@ -30,8 +30,8 @@ def detect_liquidity_sweeps(
     if swings is None:
         swings = detect_swings(df, left=left, right=right)
 
-    swing_lows = swings[swings["type"] == "low"].sort_values("time")
-    swing_highs = swings[swings["type"] == "high"].sort_values("time")
+    swing_lows = swings[swings["type"] == "low"].sort_values("time", kind="stable")
+    swing_highs = swings[swings["type"] == "high"].sort_values("time", kind="stable")
 
     used_lows: set = set()
     used_highs: set = set()
@@ -61,4 +61,4 @@ def detect_liquidity_sweeps(
                 used_highs.add(sw["time"])
 
     out = pd.DataFrame(records, columns=["time", "direction", "swept_level", "swept_swing_time"])
-    return out.sort_values("time").reset_index(drop=True)
+    return out.sort_values("time", kind="stable").reset_index(drop=True)
