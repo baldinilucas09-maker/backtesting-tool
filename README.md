@@ -343,6 +343,30 @@ après chaque passage.
 > code corrigé ; les entrées commitées avant cette date reflétaient
 > potentiellement des trades légèrement différents.
 
+## Scanner de setups A+
+
+`scripts/scan_ap_setups.py` répond à un besoin différent du backtest ou du
+paper trading : repérer rapidement, sans tout relire à la main, les setups
+à confluence **maximale** (toutes les conditions activées réunies — pas
+juste le seuil minimum utilisé pour trader en backtest) sur les deux styles
+suivis dans ce projet :
+
+- **Intraday** (`strategy_btc_perp_candidate_a.yaml`, 5min/4h) : score max
+  4/4 (sweep + order block + FVG + POC/AVWAP).
+- **Swing institutionnel** (`strategy_btc_perp_swing.yaml`, 4h/1D, sans
+  FVG, avec confirmation) : score max 4/4 (sweep + order block +
+  POC/AVWAP + confirmation).
+
+```bash
+python scripts/scan_ap_setups.py --output output/setups_ap.html
+```
+
+Génère un rapport HTML autonome (à ouvrir dans un navigateur) avec, pour
+chaque style : le statut actuel (setup A+ en cours / biais actif en
+attente / rien) et la liste des setups A+ récents (date, direction,
+niveaux, tags de confluence). À relancer après chaque ajout de données,
+comme le paper trading.
+
 ## Structure du projet
 
 ```
