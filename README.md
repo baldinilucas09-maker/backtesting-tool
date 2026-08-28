@@ -277,8 +277,13 @@ out-of-sample dépasse 1.3 avec un échantillon de plus de 100 trades :
 
 | Config | Trades OOS | Win rate | PF net OOS | PnL net OOS | Max DD | Fenêtres profitables |
 |---|---|---|---|---|---|---|
-| `config/strategy_btc_perp_candidate_a.yaml` | 130 | 37.7% | **1.46** | +3410 $ | -5.71% | 22/34 |
-| `config/strategy_btc_perp_candidate_b.yaml` | 124 | 37.1% | **1.33** | +2341 $ | -5.97% | 20/34 |
+| `config/strategy_btc_perp_candidate_a.yaml` | 131 | 38.2% | **1.50** | +3699 $ | -5.71% | 23/35 |
+| `config/strategy_btc_perp_candidate_b.yaml` | 126 | 37.3% | **1.34** | +2518 $ | -5.97% | 21/35 |
+
+(Chiffres recalculés le 26/08/2026 après correction d'un bug de tri non
+stable — voir la note dans "Avertissement" — sur ~19.5 mois de données
+jusqu'au 25/08/2026 ; quasiment identiques aux chiffres d'origine sur 19
+mois, ce qui est plutôt rassurant sur la stabilité du résultat.)
 
 Les deux utilisent un objectif unique à RR=3 (pas de scale-out), des swings
 "importants" (4 bougies de chaque côté) et un seuil d'impulsion ATR bas
@@ -326,11 +331,17 @@ L'état (`paper_trading/state.json`) et l'historique des trades clôturés
 session à l'autre dans cet environnement éphémère — pensez à commit/push
 après chaque passage.
 
-> Au 25/08/2026, le fichier de données s'arrête au 31/07/2026 : tant que des
-> données plus récentes n'ont pas été ajoutées, ce script ne fait que
-> rejouer l'historique déjà connu (rien de nouveau à signaler). Le suivi
-> devient utile dès que de nouvelles bougies réelles, jamais vues par la
-> recherche de paramètres, sont ajoutées.
+> Au 26/08/2026, le fichier de données couvre jusqu'au 25/08/2026 (mois
+> d'août complet à ce jour). Le suivi devient statistiquement intéressant à
+> mesure que s'accumulent des bougies réelles jamais vues par la recherche
+> de paramètres (celle-ci s'est arrêtée sur des données jusqu'à fin juillet
+> 2026) — pour l'instant quelques jours seulement, trop peu pour conclure.
+
+> **Important (26/08/2026)** : un bug de tri non stable a été découvert et
+> corrigé pendant la mise en place de ce suivi — voir la note dans
+> "Avertissement" plus bas. Le journal a été régénéré en entier avec le
+> code corrigé ; les entrées commitées avant cette date reflétaient
+> potentiellement des trades légèrement différents.
 
 ## Structure du projet
 
@@ -381,3 +392,19 @@ le surapprentissage, mais tant que les points ci-dessus ne sont pas
 adressés, considérez ces deux configurations comme des **candidats à
 tester en conditions réelles (paper trading) avant tout usage avec du
 capital réel** — pas comme une stratégie validée.
+
+**Bug corrigé le 26/08/2026** : les modules de détection de patterns
+(`patterns/*.py`) triaient leurs résultats par timestamp avec l'algorithme
+par défaut de pandas (quicksort), qui n'est pas stable. Quand deux patterns
+partageaient exactement le même timestamp (ex. un sweep bullish et un
+bearish sur la même bougie HTF), l'ordre retenu entre les deux pouvait
+changer selon la taille totale du jeu de données — donc en ajoutant des
+données plus récentes, un signal sur une bougie **passée** pouvait changer
+rétroactivement, avec un effet en cascade sur les trades suivants. Corrigé
+en forçant un tri stable (`kind="stable"`) partout où c'est trié par
+timestamp. Les résultats de la recherche de paramètres et des deux
+candidats ont été recalculés après correction (voir "Recherche de
+paramètres" ci-dessus) : quasiment inchangés, ce qui est rassurant, mais ce
+type de bug rappelle qu'un pipeline de backtest doit être traité avec la
+même rigueur qu'un logiciel de production, pas juste comme un script
+jetable.

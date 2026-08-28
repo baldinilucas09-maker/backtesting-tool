@@ -3,9 +3,12 @@
 # (mars 2024 - juillet 2026, fragmenté). Même famille que candidate_a mais
 # avec une tolérance de proximité plus large (0.75x ATR au lieu de 0.3x).
 #
-# Walk-forward OOS : 124 trades, win rate 37.1%, profit factor net 1.33,
-# PnL net +2341$, drawdown -5.97%, 20/34 fenêtres profitables.
-# (Pour comparaison, candidate_a : 130 trades, PF 1.46, PnL +3410$ -> meilleur
+# Walk-forward OOS (recalculé le 26/08/2026 après correction d'un bug de tri
+# non stable, sur ~19.5 mois jusqu'au 25/08/2026) : 126 trades, win rate
+# 37.3%, profit factor net 1.34, PnL net +2518$, drawdown -5.97%, 21/35
+# fenêtres profitables. Quasi identique aux chiffres d'origine (124 trades,
+# PF 1.33, +2341$).
+# (Pour comparaison, candidate_a : 131 trades, PF 1.50, PnL +3699$ -> meilleur
 # des deux sur cet échantillon.)
 #
 # ATTENTION - mêmes réserves que candidate_a.yaml, à lire avant de considérer

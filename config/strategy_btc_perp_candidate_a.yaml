@@ -2,8 +2,12 @@
 # le meilleur des 3 finalistes validés en walk-forward sur 19 mois de
 # données réelles (mars 2024 - juillet 2026, fragmenté).
 #
-# Walk-forward OOS : 130 trades, win rate 37.7%, profit factor net 1.46,
-# PnL net +3410$, drawdown -5.71%, 22/34 fenêtres profitables.
+# Walk-forward OOS (recalculé le 26/08/2026 après correction d'un bug de tri
+# non stable, sur ~19.5 mois jusqu'au 25/08/2026) : 131 trades, win rate
+# 38.2%, profit factor net 1.50, PnL net +3699$, drawdown -5.71%, 23/35
+# fenêtres profitables. Quasi identique aux chiffres d'origine (130 trades,
+# PF 1.46, +3410$) malgré le correctif et les données supplémentaires -
+# rassurant sur la stabilité du résultat, voir git log pour le détail du bug.
 #
 # ATTENTION - à lire avant de considérer ceci comme "l'edge trouvé" :
 # 1. Présélectionné sur les 90 derniers jours de données (recherche en 2
