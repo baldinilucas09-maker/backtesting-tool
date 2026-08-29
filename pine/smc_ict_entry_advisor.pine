@@ -112,10 +112,6 @@ var array<box>   fvgBoxRef      = array.new<box>()
 
 var int   lastSweepDir    = na  // 1 = bullish (sell-side balayé), -1 = bearish (buy-side balayé)
 var int   lastSweepBarIdx = na
-// non-var (réinitialisés à chaque bougie) : ne doivent être vrais que sur la
-// bougie où le sweep vient de se produire, pas persister jusqu'à la suivante
-newSweepFlag = false
-newSweepDirFlag = int(na)
 
 // ============================== AVWAP (ancré sur le dernier sweep HTF) =======
 // Ré-ancré à chaque nouveau sweep (comme vwap.anchor="sweep" côté Python) :
@@ -131,8 +127,6 @@ ltfAtr = ta.atr(14)
 if isNewHtfBar
     lastHtfTime := htfTime
     htfBarCounter += 1
-    newSweepFlag := false
-    newSweepDirFlag := na
 
     // --- 1) Sweep : vérifie les pivots déjà connus (avant cette bougie) ---
     if array.size(pivLowPrice) > 0
@@ -143,11 +137,10 @@ if isNewHtfBar
                     array.set(pivLowSwept, i, true)
                     lastSweepDir := 1
                     lastSweepBarIdx := htfBarCounter
-                    newSweepFlag := true
-                    newSweepDirFlag := 1
                     cumPV := 0.0
                     cumVol := 0.0
                     hasAnchor := true
+                    label.new(bar_index, htfLow, "Sweep ▲ liquidité (achat)", style=label.style_label_up, color=color.new(color.lime, 60), textcolor=color.black, size=size.tiny)
     if array.size(pivHighPrice) > 0
         for i = array.size(pivHighPrice) - 1 to 0
             if not array.get(pivHighSwept, i)
@@ -156,11 +149,10 @@ if isNewHtfBar
                     array.set(pivHighSwept, i, true)
                     lastSweepDir := -1
                     lastSweepBarIdx := htfBarCounter
-                    newSweepFlag := true
-                    newSweepDirFlag := -1
                     cumPV := 0.0
                     cumVol := 0.0
                     hasAnchor := true
+                    label.new(bar_index, htfHigh, "Sweep ▼ liquidité (vente)", style=label.style_label_down, color=color.new(color.red, 60), textcolor=color.black, size=size.tiny)
 
     // --- 2) Enregistre les nouveaux pivots confirmés sur cette bougie ---
     if not na(htfPivLow)
@@ -235,7 +227,8 @@ if isNewHtfBar
                         array.push(obExpireAt, htfBarCounter + maxObAgeBars)
                         array.push(obMitigated, false)
                         dirColor = impulsiveBullish ? color.new(color.teal, 0) : color.new(color.maroon, 0)
-                        newBox = box.new(left=bar_index, top=obT, bottom=obB, right=bar_index, border_color=dirColor, bgcolor=color.new(dirColor, 85), extend=extend.none)
+                        obLabelTxt = impulsiveBullish ? "OB ▲ (achat)" : "OB ▼ (vente)"
+                        newBox = box.new(left=bar_index, top=obT, bottom=obB, right=bar_index, border_color=dirColor, bgcolor=color.new(dirColor, 85), extend=extend.none, text=obLabelTxt, text_size=size.tiny, text_color=dirColor, text_halign=text.align_left, text_valign=text.align_center)
                         array.push(obBoxRef, newBox)
                         break
 
@@ -268,7 +261,7 @@ if bullishGap
     array.push(fvgAvailableAt, bar_index)
     array.push(fvgExpireAt, bar_index + maxFvgAgeBars)
     array.push(fvgMitigated, false)
-    fBox = box.new(left=bar_index-2, top=fT, bottom=fB, right=bar_index, border_color=color.new(color.blue, 0), bgcolor=color.new(color.blue, 88), extend=extend.none)
+    fBox = box.new(left=bar_index-2, top=fT, bottom=fB, right=bar_index, border_color=color.new(color.blue, 0), bgcolor=color.new(color.blue, 88), extend=extend.none, text="FVG ▲ (achat)", text_size=size.tiny, text_color=color.new(color.blue, 0), text_halign=text.align_left, text_valign=text.align_center)
     array.push(fvgBoxRef, fBox)
 
 if bearishGap
@@ -280,7 +273,7 @@ if bearishGap
     array.push(fvgAvailableAt, bar_index)
     array.push(fvgExpireAt, bar_index + maxFvgAgeBars)
     array.push(fvgMitigated, false)
-    fBox2 = box.new(left=bar_index-2, top=fT2, bottom=fB2, right=bar_index, border_color=color.new(color.orange, 0), bgcolor=color.new(color.orange, 88), extend=extend.none)
+    fBox2 = box.new(left=bar_index-2, top=fT2, bottom=fB2, right=bar_index, border_color=color.new(color.orange, 0), bgcolor=color.new(color.orange, 88), extend=extend.none, text="FVG ▼ (vente)", text_size=size.tiny, text_color=color.new(color.orange, 0), text_halign=text.align_left, text_valign=text.align_center)
     array.push(fvgBoxRef, fBox2)
 
 // ============================== ÉTENSION VISUELLE DES ZONES ACTIVES ==========
@@ -341,10 +334,19 @@ signalFired = sweepActive and score >= minScore and barstate.isconfirmed
 plot(showAvwap and useAvwap ? avwapValue : na, title="AVWAP (ancré sweep)", color=color.new(color.purple, 0), linewidth=1)
 plot(showAvwap and usePoc ? currentPoc : na, title="POC (volume profile HTF)", color=color.new(color.yellow, 0), linewidth=1, style=plot.style_circles)
 
-plotshape(showZones and newSweepFlag and newSweepDirFlag == 1, style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.tiny, title="Bullish Sweep")
-plotshape(showZones and newSweepFlag and newSweepDirFlag == -1, style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny, title="Bearish Sweep")
+// Labels AVWAP / POC : un seul label mis à jour en continu sur la dernière
+// bougie plutôt qu'un texte répété sur chaque bougie (illisible).
+var label avwapLbl = na
+var label pocLbl = na
+if barstate.islast
+    label.delete(avwapLbl)
+    label.delete(pocLbl)
+    if showAvwap and useAvwap and not na(avwapValue)
+        avwapLbl := label.new(bar_index + 3, avwapValue, "AVWAP", style=label.style_label_left, color=color.new(color.purple, 0), textcolor=color.white, size=size.small)
+    if showAvwap and usePoc and not na(currentPoc)
+        pocLbl := label.new(bar_index + 3, currentPoc, "POC", style=label.style_label_left, color=color.new(color.yellow, 0), textcolor=color.black, size=size.small)
 
 if signalFired and dirWanted == 1
-    label.new(bar_index, low, "LONG " + str.tostring(score) + "/" + str.tostring(minScore), style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
+    label.new(bar_index, low, "SIGNAL LONG (" + str.tostring(score) + "/" + str.tostring(minScore) + ")", style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
 if signalFired and dirWanted == -1
-    label.new(bar_index, high, "SHORT " + str.tostring(score) + "/" + str.tostring(minScore), style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
+    label.new(bar_index, high, "SIGNAL SHORT (" + str.tostring(score) + "/" + str.tostring(minScore) + ")", style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
