@@ -1,0 +1,70 @@
+# Même signal et sortie que strategy_btc_perp_15m_ob_focus_single_tp.yaml
+# (sweep + order block HTF, TP unique 3R), mais hypothèse de coût réaliste
+# alternative : commission "maker" (ordres limites, ~0.02% sur Binance
+# USDT-M au lieu de 0.05% taker) plutôt que "worst case" market order.
+# Le PF net était tombé à peine positif (1.03) avec 0.05% ; ce test isole
+# l'effet du taux de commission seul, même signal, même validation.
+#
+# Usage : python scripts/run_backtest.py --config config/strategy_btc_perp_15m_ob_focus_maker_fee.yaml
+
+timeframes:
+  ltf: "15min"
+  htf: "4h"
+
+data:
+  raw_file: "data/raw/BTCUSDT_15min_real.csv"
+  timezone: "UTC"
+
+swings:
+  left_bars: 2
+  right_bars: 2
+
+liquidity_sweeps:
+  lookback_swings: 20
+  max_bars_since_sweep: 12
+
+order_blocks:
+  impulse_atr_mult: 1.5
+  atr_period: 14
+  max_ob_age_bars: 40
+
+fair_value_gaps:
+  min_gap_atr_mult: 0.0
+  max_fvg_age_bars: 30
+
+volume_profile:
+  window_bars: 48
+  n_bins: 30
+
+vwap:
+  anchor: "session"
+  session_start_utc: "00:00"
+
+confluence:
+  proximity_atr_mult: 0.5
+  min_score: 2
+  required:
+    sweep: true
+    order_block: true
+    fvg: false
+    poc_or_avwap: false
+
+risk:
+  initial_capital: 10000
+  risk_per_trade_pct: 1.0
+  stop_buffer_ticks: 2
+  tick_size: 0.1
+  tick_value: 0.1
+  r_multiples: [3]
+  scale_out_fractions: [1.0]
+  max_concurrent_trades: 1
+  commission_per_contract: 0.0
+  commission_pct: 0.02        # maker (ordres limites) au lieu de 0.05 taker
+  slippage_ticks: 2.0
+  qty_step: 0.001
+  max_leverage: 5.0
+
+session_filter:
+  enabled: false
+  start_utc: "12:00"
+  end_utc: "20:00"
