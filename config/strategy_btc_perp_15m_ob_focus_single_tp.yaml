@@ -1,0 +1,70 @@
+# Même signal que strategy_btc_perp_15m_ob_focus.yaml (sweep + order block
+# HTF uniquement), mais sortie à cible UNIQUE (3R) au lieu du scaling sur 3
+# paliers : moins d'exécutions facturées (entrée + 1 sortie au lieu
+# d'entrée + jusqu'à 3 sorties), pour tester si le coût de commission
+# était bien le facteur qui détruisait l'edge brut (validé en walk-forward
+# à PF brut 1.59) plutôt que le signal lui-même.
+#
+# Usage : python scripts/run_backtest.py --config config/strategy_btc_perp_15m_ob_focus_single_tp.yaml
+
+timeframes:
+  ltf: "15min"
+  htf: "4h"
+
+data:
+  raw_file: "data/raw/BTCUSDT_15min_real.csv"
+  timezone: "UTC"
+
+swings:
+  left_bars: 2
+  right_bars: 2
+
+liquidity_sweeps:
+  lookback_swings: 20
+  max_bars_since_sweep: 12
+
+order_blocks:
+  impulse_atr_mult: 1.5
+  atr_period: 14
+  max_ob_age_bars: 40
+
+fair_value_gaps:
+  min_gap_atr_mult: 0.0
+  max_fvg_age_bars: 30
+
+volume_profile:
+  window_bars: 48
+  n_bins: 30
+
+vwap:
+  anchor: "session"
+  session_start_utc: "00:00"
+
+confluence:
+  proximity_atr_mult: 0.5
+  min_score: 2   # sweep + order_block seulement
+  required:
+    sweep: true
+    order_block: true
+    fvg: false
+    poc_or_avwap: false
+
+risk:
+  initial_capital: 10000
+  risk_per_trade_pct: 1.0
+  stop_buffer_ticks: 2
+  tick_size: 0.1
+  tick_value: 0.1
+  r_multiples: [3]            # cible unique 3R, pas de scaling out
+  scale_out_fractions: [1.0]
+  max_concurrent_trades: 1
+  commission_per_contract: 0.0
+  commission_pct: 0.05
+  slippage_ticks: 2.0
+  qty_step: 0.001
+  max_leverage: 5.0
+
+session_filter:
+  enabled: false
+  start_utc: "12:00"
+  end_utc: "20:00"
